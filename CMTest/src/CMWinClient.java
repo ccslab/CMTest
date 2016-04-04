@@ -21,6 +21,7 @@ public class CMWinClient extends JFrame {
 	private JTextPane m_outTextPane;
 	private JTextField m_inTextField;
 	private JButton m_startStopButton;
+	private JButton m_loginLogoutButton;
 	private MyMouseListener cmMouseListener;
 	private CMClientStub m_clientStub;
 	private CMWinClientEventHandler m_eventHandler;
@@ -37,6 +38,8 @@ public class CMWinClient extends JFrame {
 		setLayout(new BorderLayout());
 
 		m_outTextPane = new JTextPane();
+		m_outTextPane.setBackground(new Color(245,245,245));
+		//m_outTextPane.setForeground(Color.WHITE);
 		m_outTextPane.setEditable(false);
 
 		StyledDocument doc = m_outTextPane.getStyledDocument();
@@ -52,13 +55,28 @@ public class CMWinClient extends JFrame {
 		add(m_inTextField, BorderLayout.SOUTH);
 		
 		JPanel topButtonPanel = new JPanel();
+		topButtonPanel.setBackground(new Color(220,220,220));
 		topButtonPanel.setLayout(new FlowLayout());
 		add(topButtonPanel, BorderLayout.NORTH);
 		
 		m_startStopButton = new JButton("Start Client CM");
+		//m_startStopButton.setBackground(Color.LIGHT_GRAY);	// not work on Mac
 		m_startStopButton.addActionListener(cmActionListener);
 		//add(startStopButton, BorderLayout.NORTH);
 		topButtonPanel.add(m_startStopButton);
+		
+		m_loginLogoutButton = new JButton("Login");
+		m_loginLogoutButton.addActionListener(cmActionListener);
+		topButtonPanel.add(m_loginLogoutButton);
+		
+		JPanel leftButtonPanel = new JPanel();
+		leftButtonPanel.setBackground(new Color(220,220,220));
+		leftButtonPanel.setLayout(new FlowLayout());
+		add(leftButtonPanel, BorderLayout.WEST);
+
+		JButton testButton = new JButton("test");
+		//testButton.setBackground(Color.RED);	// not work on Mac
+		leftButtonPanel.add(testButton);
 		
 		setVisible(true);
 
@@ -89,6 +107,45 @@ public class CMWinClient extends JFrame {
 	public CMWinClientEventHandler getClientEventHandler()
 	{
 		return m_eventHandler;
+	}
+	
+	// initialize button titles
+	public void initializeButtons()
+	{
+		m_startStopButton.setText("Start Client CM");
+		m_loginLogoutButton.setText("Login");
+	}
+	
+	// set button titles
+	public void setButtonsAccordingToClientState()
+	{
+		int nClientState;
+		nClientState = m_clientStub.getCMInfo().getInteractionInfo().getMyself().getState();
+		
+		// nclientState: CMInfo.CM_INIT, CMInfo.CM_CONNECT, CMInfo.CM_LOGIN, CMInfo.CM_SESSION_JOIN
+		switch(nClientState)
+		{
+		case CMInfo.CM_INIT:
+			m_startStopButton.setText("Stop Client CM");
+			m_loginLogoutButton.setText("Login");
+			break;
+		case CMInfo.CM_CONNECT:
+			m_startStopButton.setText("Stop Client CM");
+			m_loginLogoutButton.setText("Login");
+			break;
+		case CMInfo.CM_LOGIN:
+			m_startStopButton.setText("Stop Client CM");
+			m_loginLogoutButton.setText("Logout");
+			break;
+		case CMInfo.CM_SESSION_JOIN:
+			m_startStopButton.setText("Stop Client CM");
+			m_loginLogoutButton.setText("Logout");
+			break;
+		default:
+			m_startStopButton.setText("Start Client CM");
+			m_loginLogoutButton.setText("Login");
+			break;
+		}
 	}
 	
 	public void printMessage(String strText)
@@ -496,7 +553,9 @@ public class CMWinClient extends JFrame {
 		m_clientStub.logoutCM();
 		//System.out.println("======");
 		printMessage("======\n");
-		
+
+		// Change the title of the login button
+		setButtonsAccordingToClientState();
 		setTitle("CM Client");
 	}
 
@@ -504,9 +563,9 @@ public class CMWinClient extends JFrame {
 	{
 		m_clientStub.disconnectFromServer();
 		m_clientStub.terminateCM();
-		// change button to "start CM"
-		m_startStopButton.setText("Start Client CM");
-		
+		printMessage("Client CM terminates.\n");
+		// change the appearance of buttons in the client window frame
+		initializeButtons();
 		setTitle("CM Client");
 	}
 
@@ -2881,22 +2940,26 @@ public class CMWinClient extends JFrame {
 				{
 					printStyledMessage("Client CM starts.\n", "bold");
 					printStyledMessage("Type \"0\" for menu.\n", "regular");
-					// change button to "stop CM"
-					button.setText("Stop Client CM");
+					// change the appearance of buttons in the client window frame
+					setButtonsAccordingToClientState();
 				}
-				m_inTextField.requestFocus();
 			}
 			else if(button.getText().equals("Stop Client CM"))
 			{
-				m_clientStub.disconnectFromServer();
-				// stop cm
-				m_clientStub.terminateCM();
-				printMessage("Client CM terminates.\n");
-				// change button to "start CM"
-				button.setText("Start Client CM");
-				
-				setTitle("CM Client");
+				testTermination();
 			}
+			else if(button.getText().equals("Login"))
+			{
+				// login to the default cm server
+				testLoginDS();
+			}
+			else if(button.getText().equals("Logout"))
+			{
+				// logout from the default cm server
+				testLogoutDS();
+			}
+
+			m_inTextField.requestFocus();
 		}
 	}
 	
