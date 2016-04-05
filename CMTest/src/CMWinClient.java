@@ -12,6 +12,9 @@ import java.util.Iterator;
 import java.util.Random;
 
 import javax.swing.*;
+import javax.swing.border.Border;
+import javax.swing.border.LineBorder;
+import javax.swing.border.TitledBorder;
 import javax.swing.text.*;
 
 import kr.ac.konkuk.ccslab.cm.*;
@@ -23,8 +26,15 @@ public class CMWinClient extends JFrame {
 	private JButton m_startStopButton;
 	private JButton m_loginLogoutButton;
 	private JPanel m_leftButtonPanel;
+	private JScrollPane m_westScroll;
 	private JButton m_composeSNSContentButton;
 	private JButton m_readSNSContentButton;
+	private JButton m_findUserButton;
+	private JButton m_addFriendButton;
+	private JButton m_removeFriendButton;
+	private JButton m_friendsButton;
+	private JButton m_friendRequestersButton;
+	private JButton m_biFriendsButton;
 	private MyMouseListener cmMouseListener;
 	private CMClientStub m_clientStub;
 	private CMWinClientEventHandler m_eventHandler;
@@ -35,7 +45,7 @@ public class CMWinClient extends JFrame {
 		MyActionListener cmActionListener = new MyActionListener();
 		cmMouseListener = new MyMouseListener();
 		setTitle("CM Client");
-		setSize(500, 500);
+		setSize(600, 600);
 		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		
 		setLayout(new BorderLayout());
@@ -48,10 +58,10 @@ public class CMWinClient extends JFrame {
 		StyledDocument doc = m_outTextPane.getStyledDocument();
 		addStylesToDocument(doc);
 		add(m_outTextPane, BorderLayout.CENTER);
-		JScrollPane scroll = new JScrollPane (m_outTextPane, 
+		JScrollPane centerScroll = new JScrollPane (m_outTextPane, 
 				   JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-		
-		add(scroll);
+		//add(centerScroll);
+		getContentPane().add(centerScroll, BorderLayout.CENTER);
 		
 		m_inTextField = new JTextField();
 		m_inTextField.addKeyListener(cmKeyListener);
@@ -76,19 +86,47 @@ public class CMWinClient extends JFrame {
 		m_leftButtonPanel.setBackground(new Color(220,220,220));
 		m_leftButtonPanel.setLayout(new BoxLayout(m_leftButtonPanel, BoxLayout.Y_AXIS));
 		add(m_leftButtonPanel, BorderLayout.WEST);
+		m_westScroll = new JScrollPane (m_leftButtonPanel, 
+				   JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+		//add(westScroll);
+		getContentPane().add(m_westScroll, BorderLayout.WEST);
 
-		JLabel labelSNS = new JLabel("SNS", JLabel.CENTER);
-		//labelSNS.setHorizontalTextPosition(JLabel.CENTER);	// from here
+		Border lineBorder = BorderFactory.createLineBorder(Color.BLACK);
+		TitledBorder titledBorder = BorderFactory.createTitledBorder(lineBorder, "SNS");
+		JPanel snsPanel = new JPanel();
+		snsPanel.setLayout(new BoxLayout(snsPanel, BoxLayout.Y_AXIS));
+		snsPanel.setBorder(titledBorder);
+		
 		m_composeSNSContentButton = new JButton("Compose");
 		m_composeSNSContentButton.addActionListener(cmActionListener);
 		m_readSNSContentButton = new JButton("Read");
 		m_readSNSContentButton.addActionListener(cmActionListener);
-		//testButton.setBackground(Color.RED);	// not work on Mac
-		m_leftButtonPanel.add(labelSNS);
-		m_leftButtonPanel.add(m_composeSNSContentButton);
-		m_leftButtonPanel.add(m_readSNSContentButton);
-		m_leftButtonPanel.setVisible(false);
+		m_findUserButton = new JButton("Find user");
+		m_findUserButton.addActionListener(cmActionListener);
+		m_addFriendButton = new JButton("Add Friend");
+		m_addFriendButton.addActionListener(cmActionListener);
+		m_removeFriendButton = new JButton("Remove Friend");
+		//m_removeFriendButton.setMaximumSize(new Dimension(150,10));
+		m_removeFriendButton.addActionListener(cmActionListener);
+		m_friendsButton = new JButton("Friends");
+		m_friendsButton.addActionListener(cmActionListener);
+		m_friendRequestersButton = new JButton("Friend requests");
+		//m_friendRequestersButton.setMaximumSize(new Dimension(150,10));
+		m_friendRequestersButton.addActionListener(cmActionListener);
+		m_biFriendsButton = new JButton("Bi-friends");
+		m_biFriendsButton.addActionListener(cmActionListener);
+		snsPanel.add(m_composeSNSContentButton);
+		snsPanel.add(m_readSNSContentButton);
+		snsPanel.add(m_findUserButton);
+		snsPanel.add(m_addFriendButton);
+		snsPanel.add(m_removeFriendButton);
+		snsPanel.add(m_friendsButton);
+		snsPanel.add(m_friendRequestersButton);
+		snsPanel.add(m_biFriendsButton);
+		m_leftButtonPanel.add(snsPanel);
 		
+		m_leftButtonPanel.setVisible(false);
+		m_westScroll.setVisible(false);
 		setVisible(true);
 
 		m_clientStub = new CMClientStub();
@@ -126,6 +164,7 @@ public class CMWinClient extends JFrame {
 		m_startStopButton.setText("Start Client CM");
 		m_loginLogoutButton.setText("Login");
 		m_leftButtonPanel.setVisible(false);
+		m_westScroll.setVisible(false);
 	}
 	
 	// set button titles
@@ -141,26 +180,31 @@ public class CMWinClient extends JFrame {
 			m_startStopButton.setText("Stop Client CM");
 			m_loginLogoutButton.setText("Login");
 			m_leftButtonPanel.setVisible(false);
+			m_westScroll.setVisible(false);
 			break;
 		case CMInfo.CM_CONNECT:
 			m_startStopButton.setText("Stop Client CM");
 			m_loginLogoutButton.setText("Login");
 			m_leftButtonPanel.setVisible(false);
+			m_westScroll.setVisible(false);
 			break;
 		case CMInfo.CM_LOGIN:
 			m_startStopButton.setText("Stop Client CM");
 			m_loginLogoutButton.setText("Logout");
 			m_leftButtonPanel.setVisible(false);
+			m_westScroll.setVisible(false);
 			break;
 		case CMInfo.CM_SESSION_JOIN:
 			m_startStopButton.setText("Stop Client CM");
 			m_loginLogoutButton.setText("Logout");
 			m_leftButtonPanel.setVisible(true);
+			m_westScroll.setVisible(true);
 			break;
 		default:
 			m_startStopButton.setText("Start Client CM");
 			m_loginLogoutButton.setText("Login");
 			m_leftButtonPanel.setVisible(false);
+			m_westScroll.setVisible(false);
 			break;
 		}
 	}
@@ -2984,6 +3028,30 @@ public class CMWinClient extends JFrame {
 			else if(button.equals(m_readSNSContentButton))
 			{
 				testSNSContentDownload();
+			}
+			else if(button.equals(m_findUserButton))
+			{
+				testFindRegisteredUser();
+			}
+			else if(button.equals(m_addFriendButton))
+			{
+				testAddNewFriend();
+			}
+			else if(button.equals(m_removeFriendButton))
+			{
+				testRemoveFriend();
+			}
+			else if(button.equals(m_friendsButton))
+			{
+				testRequestFriendsList();
+			}
+			else if(button.equals(m_friendRequestersButton))
+			{
+				testRequestFriendRequestersList();
+			}
+			else if(button.equals(m_biFriendsButton))
+			{
+				testRequestBiFriendsList();
 			}
 
 			m_inTextField.requestFocus();
