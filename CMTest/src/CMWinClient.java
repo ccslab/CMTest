@@ -22,6 +22,9 @@ public class CMWinClient extends JFrame {
 	private JTextField m_inTextField;
 	private JButton m_startStopButton;
 	private JButton m_loginLogoutButton;
+	private JPanel m_leftButtonPanel;
+	private JButton m_composeSNSContentButton;
+	private JButton m_readSNSContentButton;
 	private MyMouseListener cmMouseListener;
 	private CMClientStub m_clientStub;
 	private CMWinClientEventHandler m_eventHandler;
@@ -69,14 +72,22 @@ public class CMWinClient extends JFrame {
 		m_loginLogoutButton.addActionListener(cmActionListener);
 		topButtonPanel.add(m_loginLogoutButton);
 		
-		JPanel leftButtonPanel = new JPanel();
-		leftButtonPanel.setBackground(new Color(220,220,220));
-		leftButtonPanel.setLayout(new FlowLayout());
-		add(leftButtonPanel, BorderLayout.WEST);
+		m_leftButtonPanel = new JPanel();
+		m_leftButtonPanel.setBackground(new Color(220,220,220));
+		m_leftButtonPanel.setLayout(new BoxLayout(m_leftButtonPanel, BoxLayout.Y_AXIS));
+		add(m_leftButtonPanel, BorderLayout.WEST);
 
-		JButton testButton = new JButton("test");
+		JLabel labelSNS = new JLabel("SNS", JLabel.CENTER);
+		//labelSNS.setHorizontalTextPosition(JLabel.CENTER);	// from here
+		m_composeSNSContentButton = new JButton("Compose");
+		m_composeSNSContentButton.addActionListener(cmActionListener);
+		m_readSNSContentButton = new JButton("Read");
+		m_readSNSContentButton.addActionListener(cmActionListener);
 		//testButton.setBackground(Color.RED);	// not work on Mac
-		leftButtonPanel.add(testButton);
+		m_leftButtonPanel.add(labelSNS);
+		m_leftButtonPanel.add(m_composeSNSContentButton);
+		m_leftButtonPanel.add(m_readSNSContentButton);
+		m_leftButtonPanel.setVisible(false);
 		
 		setVisible(true);
 
@@ -114,6 +125,7 @@ public class CMWinClient extends JFrame {
 	{
 		m_startStopButton.setText("Start Client CM");
 		m_loginLogoutButton.setText("Login");
+		m_leftButtonPanel.setVisible(false);
 	}
 	
 	// set button titles
@@ -128,22 +140,27 @@ public class CMWinClient extends JFrame {
 		case CMInfo.CM_INIT:
 			m_startStopButton.setText("Stop Client CM");
 			m_loginLogoutButton.setText("Login");
+			m_leftButtonPanel.setVisible(false);
 			break;
 		case CMInfo.CM_CONNECT:
 			m_startStopButton.setText("Stop Client CM");
 			m_loginLogoutButton.setText("Login");
+			m_leftButtonPanel.setVisible(false);
 			break;
 		case CMInfo.CM_LOGIN:
 			m_startStopButton.setText("Stop Client CM");
 			m_loginLogoutButton.setText("Logout");
+			m_leftButtonPanel.setVisible(false);
 			break;
 		case CMInfo.CM_SESSION_JOIN:
 			m_startStopButton.setText("Stop Client CM");
 			m_loginLogoutButton.setText("Logout");
+			m_leftButtonPanel.setVisible(true);
 			break;
 		default:
 			m_startStopButton.setText("Start Client CM");
 			m_loginLogoutButton.setText("Login");
+			m_leftButtonPanel.setVisible(false);
 			break;
 		}
 	}
@@ -491,6 +508,7 @@ public class CMWinClient extends JFrame {
 		//System.out.println("======");
 		printMessage("======\n");
 		
+		setButtonsAccordingToClientState();
 		setTitle("CM Client");
 	}
 	
@@ -607,6 +625,7 @@ public class CMWinClient extends JFrame {
 		m_clientStub.leaveSession();
 		//System.out.println("======");
 		printMessage("======\n");
+		setButtonsAccordingToClientState();
 	}
 
 	public void testUserPosition()
@@ -2957,6 +2976,14 @@ public class CMWinClient extends JFrame {
 			{
 				// logout from the default cm server
 				testLogoutDS();
+			}
+			else if(button.equals(m_composeSNSContentButton))
+			{
+				testSNSContentUpload();
+			}
+			else if(button.equals(m_readSNSContentButton))
+			{
+				testSNSContentDownload();
 			}
 
 			m_inTextField.requestFocus();

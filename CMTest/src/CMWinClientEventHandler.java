@@ -210,6 +210,9 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			//System.out.println("<"+se.getUserName()+">: "+se.getTalk());
 			printMessage("<"+se.getUserName()+">: "+se.getTalk()+"\n");
 			break;
+		case CMSessionEvent.JOIN_SESSION_ACK:
+			m_client.setButtonsAccordingToClientState();
+			break;
 		case CMSessionEvent.ADD_CHANNEL_ACK:
 			if(se.getReturnCode() == 0)
 			{
