@@ -165,6 +165,8 @@ public class CMWinClient extends JFrame {
 		m_loginLogoutButton.setText("Login");
 		m_leftButtonPanel.setVisible(false);
 		m_westScroll.setVisible(false);
+		revalidate();
+		repaint();
 	}
 	
 	// set button titles
@@ -207,6 +209,8 @@ public class CMWinClient extends JFrame {
 			m_westScroll.setVisible(false);
 			break;
 		}
+		revalidate();
+		repaint();
 	}
 	
 	public void printMessage(String strText)
