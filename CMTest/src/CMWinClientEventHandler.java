@@ -1,12 +1,32 @@
 import java.util.ArrayList;
 import java.util.Iterator;
 
-import javax.swing.JButton;
-
 import java.io.*;
 import java.awt.*;
 
-import kr.ac.konkuk.ccslab.cm.*;
+import kr.ac.konkuk.ccslab.cm.entity.CMServerInfo;
+import kr.ac.konkuk.ccslab.cm.entity.CMSessionInfo;
+import kr.ac.konkuk.ccslab.cm.event.CMDataEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMDummyEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMEventHandler;
+import kr.ac.konkuk.ccslab.cm.event.CMFileEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMInterestEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMMultiServerEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMSNSEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMUserEventField;
+import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMFileTransferInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMSNSInfo;
+import kr.ac.konkuk.ccslab.cm.manager.CMFileTransferManager;
+import kr.ac.konkuk.ccslab.cm.sns.CMSNSContent;
+import kr.ac.konkuk.ccslab.cm.sns.CMSNSContentList;
+import kr.ac.konkuk.ccslab.cm.stub.CMClientStub;
+import kr.ac.konkuk.ccslab.cm.util.CMUtil;
 
 public class CMWinClientEventHandler implements CMEventHandler{
 	//private JTextArea m_outTextArea;
@@ -213,20 +233,40 @@ public class CMWinClientEventHandler implements CMEventHandler{
 		case CMSessionEvent.JOIN_SESSION_ACK:
 			m_client.setButtonsAccordingToClientState();
 			break;
-		case CMSessionEvent.ADD_CHANNEL_ACK:
+		case CMSessionEvent.ADD_NONBLOCK_SOCKET_CHANNEL_ACK:
 			if(se.getReturnCode() == 0)
 			{
-				//System.out.println("Adding SocketChannel("+se.getChannelName()+","+se.getChannelNum()
-				//		+") failed in the server!");
-				printMessage("Adding SocketChannel("+se.getChannelName()+","+se.getChannelNum()
-						+") failed in the server!\n");
+				printMessage("Adding a nonblocking SocketChannel("+se.getChannelName()+","+se.getChannelNum()
+						+") failed at the server!\n");
 			}
 			else
 			{
-				//System.out.println("Adding SocketChannel("+se.getChannelName()+","+se.getChannelNum()
-				//		+") succeeded in the server!");
-				printMessage("Adding SocketChannel("+se.getChannelName()+","+se.getChannelNum()
-						+") succeeded in the server!\n");
+				printMessage("Adding a nonblocking SocketChannel("+se.getChannelName()+","+se.getChannelNum()
+						+") succeeded at the server!\n");
+			}
+			break;
+		case CMSessionEvent.ADD_BLOCK_SOCKET_CHANNEL_ACK:
+			if(se.getReturnCode() == 0)
+			{
+				printMessage("Adding a blocking socket channel ("+se.getChannelName()+","+se.getChannelNum()
+					+") failed at the server!\n");
+			}
+			else
+			{
+				printMessage("Adding a blocking socket channel("+se.getChannelName()+","+se.getChannelNum()
+					+") succeeded at the server!\n");
+			}
+			break;
+		case CMSessionEvent.REMOVE_BLOCK_SOCKET_CHANNEL_ACK:
+			if(se.getReturnCode() == 0)
+			{
+				printMessage("Removing a blocking socket channel ("+se.getChannelName()+","+se.getChannelNum()
+					+") failed at the server!\n");
+			}
+			else
+			{
+				printMessage("Removing a blocking socket channel("+se.getChannelName()+","+se.getChannelNum()
+					+") succeeded at the server!\n");
 			}
 			break;
 		case CMSessionEvent.REGISTER_USER_ACK:
@@ -427,10 +467,12 @@ public class CMWinClientEventHandler implements CMEventHandler{
 		switch(fe.getID())
 		{
 		case CMFileEvent.REQUEST_FILE_TRANSFER:
+		case CMFileEvent.REQUEST_FILE_TRANSFER_CHAN:
 			//System.out.println("["+fe.getUserName()+"] requests file("+fe.getFileName()+").");
 			printMessage("["+fe.getUserName()+"] requests file("+fe.getFileName()+").\n");
 			break;
 		case CMFileEvent.REPLY_FILE_TRANSFER:
+		case CMFileEvent.REPLY_FILE_TRANSFER_CHAN:
 			if(fe.getReturnCode() == 0)
 			{
 				//System.out.println("["+fe.getFileName()+"] does not exist in the owner!");
@@ -438,10 +480,12 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			}
 			break;
 		case CMFileEvent.START_FILE_TRANSFER:
+		case CMFileEvent.START_FILE_TRANSFER_CHAN:
 			//System.out.println("["+fe.getSenderName()+"] is about to send file("+fe.getFileName()+").");
 			printMessage("["+fe.getSenderName()+"] is about to send file("+fe.getFileName()+").\n");
 			break;
 		case CMFileEvent.END_FILE_TRANSFER:
+		case CMFileEvent.END_FILE_TRANSFER_CHAN:
 			//System.out.println("["+fe.getSenderName()+"] completes to send file("+fe.getFileName()+", "
 			//		+fe.getFileSize()+" Bytes).");
 			printMessage("["+fe.getSenderName()+"] completes to send file("+fe.getFileName()+", "
@@ -451,7 +495,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			if(m_bReqAttachedFile)
 			{
 				CMFileTransferInfo fileInfo = m_clientStub.getCMInfo().getFileTransferInfo();
-				String strPath = fileInfo.getFilePath() + "/" + fe.getFileName();
+				String strPath = fileInfo.getFilePath() + File.separator + fe.getFileName();
 				File file = new File(strPath);
 				try {
 					Desktop.getDesktop().open(file);
@@ -474,7 +518,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 		// add file name to list and increase index
 		if(m_nCurrentServerNum == 1)
 		{
-			m_filePieces[m_nRecvPieceNum++] = fileInfo.getFilePath()+"/"+strFile; 
+			m_filePieces[m_nRecvPieceNum++] = fileInfo.getFilePath()+File.separator+strFile; 
 		}
 		else
 		{
@@ -484,7 +528,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			int nEndIndex = strFile.lastIndexOf(".");
 			int nPieceIndex = Integer.parseInt(strFile.substring(nStartIndex, nEndIndex))-1;
 			
-			m_filePieces[nPieceIndex] = fileInfo.getFilePath()+"/"+strFile;
+			m_filePieces[nPieceIndex] = fileInfo.getFilePath()+File.separator+strFile;
 			m_nRecvPieceNum++;
 		}
 		
@@ -496,7 +540,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			{
 				// set the merged file name m-'file name'.'ext'
 				int index = strFile.lastIndexOf("-");
-				strMergeName = fileInfo.getFilePath()+"/"+strFile.substring(0, index)+"."+m_strExt;
+				strMergeName = fileInfo.getFilePath()+File.separator+strFile.substring(0, index)+"."+m_strExt;
 
 				// merge split pieces
 				CMFileTransferManager.mergeFiles(m_filePieces, m_nCurrentServerNum, strMergeName);
@@ -560,8 +604,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 
 			contentList.addSNSContent(se.getContentID(), se.getDate(), se.getWriterName(), se.getMessage(),
 					se.getNumAttachedFiles(), se.getReplyOf(), se.getLevelOfDisclosure(), fNameList);
-			//System.out.println("transmitted delay: "+se.getEstDelay());
-			printMessage("transmitted delay: "+se.getEstDelay()+"\n");
+			//printMessage("transmitted delay: "+se.getEstDelay()+"\n");
 			m_nEstDelaySum += se.getEstDelay();
 			break;
 		case CMSNSEvent.CONTENT_DOWNLOAD_END:
@@ -716,7 +759,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 				CMFileTransferInfo fInfo = m_clientStub.getCMInfo().getFileTransferInfo();
 				for(int i = 0; i < fNameList.size(); i++)
 				{
-					String fPath = fInfo.getFilePath() + "/" + fNameList.get(i);
+					String fPath = fInfo.getFilePath() + File.separator + fNameList.get(i);
 					File file = new File(fPath);
 					
 					// display images (possibly thumbnails)
@@ -748,7 +791,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 							int index = fName.lastIndexOf("-thumbnail.");
 							String ext = fName.substring(index+"-thumbnail".length(), fName.length());
 							fName = fName.substring(0, index)+ext;
-							fPath = fInfo.getFilePath()+"/"+fName;
+							fPath = fInfo.getFilePath()+File.separator+fName;
 							file = new File(fPath);
 						}
 					}
@@ -762,7 +805,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 								int index = fName.lastIndexOf("-thumbnail.");
 								String ext = fName.substring(index+"-thumbnail".length(), fName.length());
 								fName = fName.substring(0, index)+ext;
-								fPath = fInfo.getFilePath()+"/"+fName;
+								fPath = fInfo.getFilePath()+File.separator+fName;
 								file = new File(fPath);
 							}
 							else
@@ -786,8 +829,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 				}	// for
 			}	// if
 		}	// while
-		//System.out.println("sum of estimated download delay: "+m_nEstDelaySum +" ms");
-		printMessage("sum of estimated download delay: "+m_nEstDelaySum +" ms\n");
+		//printMessage("sum of estimated download delay: "+m_nEstDelaySum +" ms\n");
 
 		// continue simulation until m_nSimNum = 0
 		if( --m_nSimNum > 0 )
@@ -795,10 +837,10 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			// repeat the request of SNS content downloading
 			m_lStartTime = System.currentTimeMillis();
 			int nContentOffset = 0;
-			String strUserName = m_clientStub.getCMInfo().getInteractionInfo().getMyself().getName();
+			String strUserName = m_clientStub.getMyself().getName();
 			String strWriterName = "";
 			
-			m_clientStub.requestSNSContent(strUserName, strWriterName, nContentOffset);
+			m_clientStub.requestSNSContent(strWriterName, nContentOffset);
 			if(CMInfo._CM_DEBUG)
 			{
 				//System.out.println("["+strUserName+"] requests content with offset("+nContentOffset+").");

@@ -10,16 +10,19 @@ import javax.swing.text.StyleConstants;
 import javax.swing.text.StyleContext;
 import javax.swing.text.StyledDocument;
 
-import kr.ac.konkuk.ccslab.cm.CMConfigurator;
-import kr.ac.konkuk.ccslab.cm.CMFileTransferInfo;
-import kr.ac.konkuk.ccslab.cm.CMGroup;
-import kr.ac.konkuk.ccslab.cm.CMInfo;
-import kr.ac.konkuk.ccslab.cm.CMInteractionInfo;
-import kr.ac.konkuk.ccslab.cm.CMSNSUserAccessSimulator;
-import kr.ac.konkuk.ccslab.cm.CMServerStub;
-import kr.ac.konkuk.ccslab.cm.CMSession;
+import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
+import kr.ac.konkuk.ccslab.cm.entity.CMSession;
+import kr.ac.konkuk.ccslab.cm.info.CMFileTransferInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
+import kr.ac.konkuk.ccslab.cm.manager.CMConfigurator;
+import kr.ac.konkuk.ccslab.cm.sns.CMSNSUserAccessSimulator;
+import kr.ac.konkuk.ccslab.cm.stub.CMServerStub;
 
 public class CMWinServer extends JFrame {
+
+	private static final long serialVersionUID = 1L;
+	
 	//private JTextArea m_outTextArea;
 	private JTextPane m_outTextPane;
 	private JTextField m_inTextField;
@@ -70,6 +73,30 @@ public class CMWinServer extends JFrame {
 		m_eventHandler = new CMWinServerEventHandler(m_serverStub, this);
 		m_uaSim = new CMSNSUserAccessSimulator();
 
+		// start cm
+		boolean bRet = m_serverStub.startCM();
+		if(!bRet)
+		{
+			printStyledMessage("CM initialization error!\n", "bold");
+		}
+		else
+		{
+			printStyledMessage("Server CM starts.\n", "bold");
+			printMessage("Type \"0\" for menu.\n");					
+			// change button to "stop CM"
+			m_startStopButton.setText("Stop Server CM");
+		}
+		// check if default server or not
+		if(CMConfigurator.isDServer(m_serverStub.getCMInfo()))
+		{
+			setTitle("CM Default Server (\"SERVER\")");
+		}
+		else
+		{
+			setTitle("CM Additional Server (\"?\")");
+		}					
+		m_inTextField.requestFocus();
+		
 	}
 	
 	private void addStylesToDocument(StyledDocument doc)
@@ -122,6 +149,7 @@ public class CMWinServer extends JFrame {
 			printMessage("11: config user access simulation, 12: start user access simulation\n");
 			printMessage("13: start user access simulation and calculate prefetch precision and recall\n");
 			printMessage("14: configure, simulate, and write recent history to CMDB\n");
+			printMessage("15: test input network throughput, 16: test output network throughput\n");
 			printMessage("99: terminate CM\n");
 			break;
 		case 1: // print session information
@@ -165,6 +193,12 @@ public class CMWinServer extends JFrame {
 			break;
 		case 14: 	// configure, simulate and write recent history to CMDB
 			writeRecentAccHistoryToDB();
+			break;
+		case 15:	// test input network throughput
+			measureInputThroughput();
+			break;
+		case 16:	// test output network throughput
+			measureOutputThroughput();
 			break;
 		case 99:
 			testTermination();
@@ -275,18 +309,20 @@ public class CMWinServer extends JFrame {
 			e.printStackTrace();
 		}
 		*/
-		strPath = JOptionPane.showInputDialog("file path (must end with \'/\')");
+		strPath = JOptionPane.showInputDialog("file path: ");
 		if(strPath == null)
 		{
 			return;
 		}
 		
+		/*
 		if(!strPath.endsWith("/"))
 		{
 			//System.out.println("Invalid file path!");
 			printMessage("Invalid file path!\n");
 			return;
 		}
+		*/
 		
 		//CMFileTransferManager.setFilePath(strPath, m_serverStub.getCMInfo());
 		m_serverStub.setFilePath(strPath);
@@ -721,6 +757,40 @@ public class CMWinServer extends JFrame {
 		return;
 	}
 
+	public void measureInputThroughput()
+	{
+		String strTarget = null;
+		float fSpeed = -1; // MBps
+		printMessage("========== test input network throughput\n");
+		
+		strTarget = JOptionPane.showInputDialog("Target node");
+		if(strTarget == null || strTarget.equals("")) 
+			return;
+
+		fSpeed = m_serverStub.measureInputThroughput(strTarget);
+		if(fSpeed == -1)
+			printMessage("Test failed!\n");
+		else
+			printMessage(String.format("Input network throughput from [%s] : %.2f MBps%n", strTarget, fSpeed));
+	}
+	
+	public void measureOutputThroughput()
+	{
+		String strTarget = null;
+		float fSpeed = -1; // MBps
+		printMessage("========== test output network throughput\n");
+		
+		strTarget = JOptionPane.showInputDialog("Target node");
+		if(strTarget == null || strTarget.equals("")) 
+			return;
+
+		fSpeed = m_serverStub.measureOutputThroughput(strTarget);
+		if(fSpeed == -1)
+			printMessage("Test failed!\n");
+		else
+			printMessage(String.format("Output network throughput to [%s] : %.2f MBps%n", strTarget, fSpeed));
+	}
+	
 
 	public void printMessage(String strText)
 	{
@@ -826,9 +896,9 @@ public class CMWinServer extends JFrame {
 				{
 					printStyledMessage("Server CM starts.\n", "bold");
 					printMessage("Type \"0\" for menu.\n");					
+					// change button to "stop CM"
+					button.setText("Stop Server CM");
 				}
-				// change button to "stop CM"
-				button.setText("Stop Server CM");
 				// check if default server or not
 				if(CMConfigurator.isDServer(m_serverStub.getCMInfo()))
 				{

@@ -1,7 +1,23 @@
 import java.util.Iterator;
 import java.io.*;
 
-import kr.ac.konkuk.ccslab.cm.*;
+import kr.ac.konkuk.ccslab.cm.event.CMDummyEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMEventHandler;
+import kr.ac.konkuk.ccslab.cm.event.CMFileEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMInterestEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMMultiServerEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMSNSEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMUserEventField;
+import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMFileTransferInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMInfo;
+import kr.ac.konkuk.ccslab.cm.manager.CMDBManager;
+import kr.ac.konkuk.ccslab.cm.manager.CMFileTransferManager;
+import kr.ac.konkuk.ccslab.cm.manager.CMInteractionManager;
+import kr.ac.konkuk.ccslab.cm.stub.CMServerStub;
 
 public class CMWinServerEventHandler implements CMEventHandler {
 	private CMWinServer m_server;
@@ -96,10 +112,10 @@ public class CMWinServerEventHandler implements CMEventHandler {
 			//System.out.println("["+se.getUserName()+"] leaves a session("+se.getSessionName()+").");
 			printMessage("["+se.getUserName()+"] leaves a session("+se.getSessionName()+").\n");
 			break;
-		case CMSessionEvent.ADD_CHANNEL:
+		case CMSessionEvent.ADD_NONBLOCK_SOCKET_CHANNEL:
 			//System.out.println("["+se.getChannelName()+"] request to add SocketChannel with index("
 			//		+se.getChannelNum()+").");
-			printMessage("["+se.getChannelName()+"] request to add SocketChannel with index("
+			printMessage("["+se.getChannelName()+"] request to add a nonblocking SocketChannel with key("
 			+se.getChannelNum()+").\n");
 			break;
 		case CMSessionEvent.REGISTER_USER:
@@ -264,14 +280,17 @@ public class CMWinServerEventHandler implements CMEventHandler {
 		switch(fe.getID())
 		{
 		case CMFileEvent.REQUEST_FILE_TRANSFER:
+		case CMFileEvent.REQUEST_FILE_TRANSFER_CHAN:
 			//System.out.println("["+fe.getUserName()+"] requests file("+fe.getFileName()+").");
 			printMessage("["+fe.getUserName()+"] requests file("+fe.getFileName()+").\n");
 			break;
 		case CMFileEvent.START_FILE_TRANSFER:
+		case CMFileEvent.START_FILE_TRANSFER_CHAN:
 			//System.out.println("["+fe.getSenderName()+"] is about to send file("+fe.getFileName()+").");
 			printMessage("["+fe.getSenderName()+"] is about to send file("+fe.getFileName()+").\n");
 			break;
 		case CMFileEvent.END_FILE_TRANSFER:
+		case CMFileEvent.END_FILE_TRANSFER_CHAN:
 			//System.out.println("["+fe.getSenderName()+"] completes to send file("+fe.getFileName()+", "
 			//		+fe.getFileSize()+" Bytes).");
 			printMessage("["+fe.getSenderName()+"] completes to send file("+fe.getFileName()+", "
@@ -305,10 +324,10 @@ public class CMWinServerEventHandler implements CMEventHandler {
 
 		// change the modified file name
 		strModifiedFile = "m-"+strFile;
-		strModifiedFile = fileInfo.getFilePath()+"/"+strSender+"/"+strModifiedFile;
+		strModifiedFile = fileInfo.getFilePath()+File.separator+strSender+File.separator+strModifiedFile;
 
 		// stylize the file
-		strFullSrcFilePath = fileInfo.getFilePath()+"/"+strSender+"/"+strFile;
+		strFullSrcFilePath = fileInfo.getFilePath()+File.separator+strSender+File.separator+strFile;
 		File srcFile = new File(strFullSrcFilePath);
 		long lFileSize = srcFile.length();
 		long lRemainBytes = lFileSize;

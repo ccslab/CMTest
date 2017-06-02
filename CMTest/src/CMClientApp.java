@@ -1,13 +1,30 @@
 import java.io.*;
+import java.nio.channels.SocketChannel;
 import java.util.*;
 
-import kr.ac.konkuk.ccslab.cm.*;
+import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
+import kr.ac.konkuk.ccslab.cm.entity.CMGroupInfo;
+import kr.ac.konkuk.ccslab.cm.entity.CMPosition;
+import kr.ac.konkuk.ccslab.cm.entity.CMServer;
+import kr.ac.konkuk.ccslab.cm.entity.CMSession;
+import kr.ac.konkuk.ccslab.cm.entity.CMUser;
+import kr.ac.konkuk.ccslab.cm.event.CMDummyEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMFileEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMInterestEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
+import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
+import kr.ac.konkuk.ccslab.cm.manager.CMFileTransferManager;
+import kr.ac.konkuk.ccslab.cm.stub.CMClientStub;
+import kr.ac.konkuk.ccslab.cm.util.CMUtil;
 
 
 public class CMClientApp {
 	private CMClientStub m_clientStub;
 	private CMClientEventHandler m_eventHandler;
 	private boolean m_bRun;
+	private Scanner m_scan = null;
 	
 	public CMClientApp()
 	{
@@ -33,6 +50,7 @@ public class CMClientApp {
 	{
 		System.out.println("client application starts.");
 		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+		m_scan = new Scanner(System.in);
 		String strInput = null;
 		int nCommand = -1;
 		while(m_bRun)
@@ -86,6 +104,8 @@ public class CMClientApp {
 				System.out.println("46: distribute a file and merge");
 				System.out.println("---------------------------------------------------");
 				System.out.println("47: multicast chat in current group");
+				System.out.println("48: get additional blocking socket channel");
+				System.out.println("60: test input network throughput, 61: test output network throughput");
 				System.out.println("99: terminate CM");
 				break;
 			case 1: // connect to default server
@@ -229,6 +249,9 @@ public class CMClientApp {
 			case 47: // test multicast chat in current group
 				testMulticastChat();
 				break;
+			case 48: // get additional blocking socket channel
+				testGetBlockSocketChannel();
+				break;
 			case 50: // test request for an attached file of SNS content
 				testRequestAttachedFileOfSNSContent();
 				break;
@@ -237,6 +260,12 @@ public class CMClientApp {
 				break;
 			case 52: // test download previous SNS content
 				testDownloadPreviousSNSContent();
+				break;
+			case 60: // test input network throughput
+				testMeasureInputThroughput();
+				break;
+			case 61: // test output network throughput
+				testMeasureOutputThroughput();
 				break;
 			case 99: // terminate CM
 				testTermination();
@@ -253,6 +282,7 @@ public class CMClientApp {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+		m_scan.close();
 	}
 	
 	public void testConnectionDS()
@@ -620,7 +650,7 @@ public class CMClientApp {
 		while(iter.hasNext())
 		{
 			CMServer tserver = iter.next();
-			if(tserver.getSocketChannelInfo().findChannel(0) != null)
+			if(tserver.getNonBlockSocketChannelInfo().findChannel(0) != null)
 			{
 				System.out.println("------ for additional server["+tserver.getServerName()+"]");
 				System.out.println("current session("+tserver.getCurrentSessionName()+
@@ -657,7 +687,7 @@ public class CMClientApp {
 	public void testAddChannel()
 	{
 		int nChType = -1;
-		int nChIndex = -1;
+		int nChKey = -1;
 		String strServerName = null;
 		String strChAddress = null;
 		int nChPort = -1;
@@ -665,7 +695,12 @@ public class CMClientApp {
 		String strGroupName = null;
 		CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
 		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+		boolean bResult = false;
+		String strBlock = null;
+		boolean isBlock = false;
+		SocketChannel sc = null;
+		String strSync = null;
+		boolean isSyncCall = false;
 		
 		if(confInfo.getSystemType().equals("CLIENT"))
 		{
@@ -678,50 +713,154 @@ public class CMClientApp {
 		}
 		
 		System.out.println("====== add additional channel");
+
 		// ask channel type, (server name), channel index (integer greater than 0), addr, port
-		try {
+		try{
 			System.out.print("Select channel type (SocketChannel:2, DatagramChannel:3, MulticastChannel:4): ");
-			nChType = Integer.parseInt(br.readLine());
-			System.out.print("Channel Index(integer greater than 0): ");
-			nChIndex = Integer.parseInt(br.readLine());
+			nChType = m_scan.nextInt();
 			if(nChType == CMInfo.CM_SOCKET_CHANNEL)
 			{
+				System.out.print("is it a blocking channel? (\"y\": yes, \"n\": no): ");
+				strBlock = m_scan.next();
+				if(strBlock.equals("y")) isBlock = true;
+				else if(strBlock.equals("n")) isBlock = false;
+				else
+				{
+					System.err.println("invalid answer! : "+strBlock);
+					return;
+				}
+			
+				if(isBlock)
+				{
+					System.out.print("Channel key(>=0): ");
+					nChKey = m_scan.nextInt();
+					if(nChKey < 0)
+					{
+						System.err.println("testAddChannel(), invalid blocking socket channel key ("+nChKey+")!");
+						return;
+					}
+				}
+				else
+				{
+					System.out.print("Channel key(integer greater than 0): ");
+					nChKey = m_scan.nextInt();
+					if(nChKey <= 0)
+					{
+						System.err.println("testAddChannel(), invalid nonblocking socket channel key ("+nChKey+")!");
+						return;
+					}
+				}
+				
+				System.out.print("Is the addition synchronous? (\"y\": yes, \"n\": no): ");
+				strSync = m_scan.next();
+				if(strSync.equals("y")) isSyncCall = true;
+				else if(strSync.equals("n")) isSyncCall =false;
+				else
+				{
+					System.err.println("invalid answer! :" + strSync);
+					return;
+				}
+				
 				System.out.print("Server name(\"SERVER\" for the default server): ");
-				strServerName = br.readLine();
+				strServerName = m_scan.next();
 			}
 			else if(nChType == CMInfo.CM_DATAGRAM_CHANNEL)
 			{
 				System.out.print("Channel udp port: ");
-				nChPort = Integer.parseInt(br.readLine());
+				nChPort = m_scan.nextInt();
 			}
 			else if(nChType == CMInfo.CM_MULTICAST_CHANNEL)
 			{
 				System.out.print("Target session name: ");
-				strSessionName = br.readLine();
+				strSessionName = m_scan.next();
 				System.out.print("Target group name: ");
-				strGroupName = br.readLine();
+				strGroupName = m_scan.next();
 				System.out.print("Channel multicast address: ");
-				strChAddress = br.readLine();
+				strChAddress = m_scan.next();
 				System.out.print("Channel multicast port: ");
-				nChPort = Integer.parseInt(br.readLine());
+				nChPort = m_scan.nextInt();
 			}
-			
-
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		}catch(InputMismatchException e){
+			System.err.println("Invalid input type!");
+			m_scan.next();
+			return;
 		}
-		
+					
 		switch(nChType)
 		{
 		case CMInfo.CM_SOCKET_CHANNEL:
-			m_clientStub.addSocketChannel(nChIndex, strServerName);
+			if(isBlock)
+			{
+				if(isSyncCall)
+				{
+					sc = m_clientStub.syncAddBlockSocketChannel(nChKey, strServerName);
+					if(sc != null)
+						System.out.println("Successfully added a blocking socket channel both "
+								+ "at the client and the server: key("+nChKey+"), server("+strServerName+")");
+					else
+						System.err.println("Failed to add a blocking socket channel both at "
+								+ "the client and the server: key("+nChKey+"), server("+strServerName+")");					
+				}
+				else
+				{
+					bResult = m_clientStub.addBlockSocketChannel(nChKey, strServerName);
+					if(bResult)
+						System.out.println("Successfully added a blocking socket channel at the client and "
+								+"requested to add the channel info to the server: key("+nChKey+"), server("
+								+strServerName+")");
+					else
+						System.err.println("Failed to add a blocking socket channel at the client or "
+								+"failed to request to add the channel info to the server: key("+nChKey
+								+"), server("+strServerName+")");
+					
+				}
+			}
+			else
+			{
+				if(isSyncCall)
+				{
+					sc = m_clientStub.syncAddNonBlockSocketChannel(nChKey, strServerName);
+					if(sc != null)
+						System.out.println("Successfully added a nonblocking socket channel both at the client "
+								+ "and the server: key("+nChKey+"), server("+strServerName+")");
+					else
+						System.err.println("Failed to add a nonblocking socket channel both at the client "
+								+ "and the server: key("+nChKey+"), server("+strServerName+")");										
+				}
+				else
+				{
+					bResult = m_clientStub.addNonBlockSocketChannel(nChKey, strServerName);
+					if(bResult)
+						System.out.println("Successfully added a nonblocking socket channel at the client and "
+								+ "requested to add the channel info to the server: key("+nChKey+"), server("
+								+strServerName+")");
+					else
+						System.err.println("Failed to add a nonblocking socket channel at the client or "
+								+ "failed to request to add the channel info to the server: key("+nChKey
+								+"), server("+strServerName+")");					
+				}
+			}
+				
 			break;
 		case CMInfo.CM_DATAGRAM_CHANNEL:
-			m_clientStub.addDatagramChannel(nChIndex, nChPort);
+			bResult = m_clientStub.addDatagramChannel(nChPort);
+			if(bResult)
+				System.out.println("Successfully added a datagram socket channel: port("+nChPort+")");
+			else
+				System.err.println("Failed to add a datagram socket channel: port("+nChPort+")");
 			break;
 		case CMInfo.CM_MULTICAST_CHANNEL:
-			m_clientStub.addMulticastChannel(nChIndex, strSessionName, strGroupName, strChAddress, nChPort);
+			bResult = m_clientStub.addMulticastChannel(strSessionName, strGroupName, strChAddress, nChPort);
+			if(bResult)
+			{
+				System.out.println("Successfully added a multicast channel: session("+strSessionName+"), group("
+						+strGroupName+"), address("+strChAddress+"), port("+nChPort+")");
+			}
+			else
+			{
+				System.err.println("Failed to add a multicast channel: session("+strSessionName+"), group("
+						+strGroupName+"), address("+strChAddress+"), port("+nChPort+")");
+			}
 			break;
 		default:
 			System.out.println("Channel type is incorrect!");
@@ -734,13 +873,19 @@ public class CMClientApp {
 	public void testRemoveChannel()
 	{
 		int nChType = -1;
-		int nChIndex = -1;
+		int nChKey = -1;
+		int nChPort = -1;
+		String strChAddress = null;
 		String strServerName = null;
 		String strSessionName = null;
 		String strGroupName = null;
 		CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
 		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+		boolean result = false;
+		String strBlock = null;
+		boolean isBlock = false;
+		String strSync = null;
+		boolean isSyncCall = false;
 		
 		if(confInfo.getSystemType().equals("CLIENT"))
 		{
@@ -753,39 +898,134 @@ public class CMClientApp {
 		}
 		
 		System.out.println("====== remove additional channel");
-		try {
+		try{
 			System.out.print("Select channel type (SocketChannel:2, DatagramChannel:3, MulticastChannel:4): ");
-			nChType = Integer.parseInt(br.readLine());
-			System.out.print("Channel Index(integer greater than 0): ");
-			nChIndex = Integer.parseInt(br.readLine());
+			nChType = m_scan.nextInt();
 			if(nChType == CMInfo.CM_SOCKET_CHANNEL)
 			{
+				System.out.print("is it a blocking channel? (\"y\": yes, \"n\": no): ");
+				strBlock = m_scan.next();
+				if(strBlock.equals("y")) isBlock = true;
+				else if(strBlock.equals("n")) isBlock = false;
+				else
+				{
+					System.err.println("invalid answer! : "+strBlock);
+					return;
+				}
+			
+				if(isBlock)
+				{
+					System.out.print("Channel key(>=0): ");
+					nChKey = m_scan.nextInt();
+					if(nChKey < 0)
+					{
+						System.err.println("testRemoveChannel(), invalid socket channel key ("+nChKey+")!");
+						return;
+					}
+					System.out.print("Is the removal synchronous? (\"y\": yes, \"n\": no); ");
+					strSync = m_scan.next();
+					if(strSync.equals("y")) isSyncCall = true;
+					else if(strSync.equals("n")) isSyncCall = false;
+					else
+					{
+						System.err.println("Invalid answer! : "+strSync);
+						return;
+					}
+				}
+				else
+				{
+					System.out.print("Channel key(integer greater than 0): ");
+					nChKey = m_scan.nextInt();
+					if(nChKey <= 0)
+					{
+						System.err.println("testRemoveChannel(), invalid socket channel key ("+nChKey+")!");
+						return;
+					}
+				}
 				System.out.print("Server name(\"SERVER\" for the default server): ");
-				strServerName = br.readLine();
+				strServerName = m_scan.next();
+			}
+			else if(nChType ==CMInfo.CM_DATAGRAM_CHANNEL)
+			{
+			System.out.print("Channel udp port: ");
+			nChPort = m_scan.nextInt();			
 			}
 			else if(nChType == CMInfo.CM_MULTICAST_CHANNEL)
 			{
 				System.out.print("Target session name: ");
-				strSessionName = br.readLine();
+				strSessionName = m_scan.next();
 				System.out.print("Target group name: ");
-				strGroupName = br.readLine();
+				strGroupName = m_scan.next();
+				System.out.print("Multicast address: ");
+				strChAddress = m_scan.next();
+				System.out.print("Multicast port: ");
+				nChPort = m_scan.nextInt();
 			}
-
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		}catch(InputMismatchException e){
+			System.err.println("Invalid input type!");
+			m_scan.next();
+			return;
 		}
-		
+
 		switch(nChType)
 		{
 		case CMInfo.CM_SOCKET_CHANNEL:
-			m_clientStub.removeAdditionalSocketChannel(nChIndex, strServerName);
+			if(isBlock)
+			{
+				if(isSyncCall)
+				{
+					result = m_clientStub.syncRemoveBlockSocketChannel(nChKey, strServerName);
+					if(result)
+						System.out.println("Successfully removed a blocking socket channel both "
+								+ "at the client and the server: key("+nChKey+"), server ("+strServerName+")");
+					else
+						System.err.println("Failed to remove a blocking socket channel both at the client "
+								+ "and the server: key("+nChKey+"), server ("+strServerName+")");					
+				}
+				else
+				{
+					result = m_clientStub.removeBlockSocketChannel(nChKey, strServerName);
+					if(result)
+						System.out.println("Successfully removed a blocking socket channel at the client and " 
+								+ "requested to remove it at the server: key("+nChKey+"), server("+strServerName+")");
+					else
+						System.err.println("Failed to remove a blocking socket channel at the client or "
+								+ "failed to request to remove it at the server: key("+nChKey+"), server("
+								+strServerName+")");
+				}
+			}
+			else
+			{
+				result = m_clientStub.removeNonBlockSocketChannel(nChKey, strServerName);
+				if(result)
+					System.out.println("Successfully removed a nonblocking socket channel: key("+nChKey
+							+"), server("+strServerName+")");
+				else
+					System.err.println("Failed to remove a nonblocing socket channel: key("+nChKey
+							+"), server("+strServerName+")");
+			}
+			
 			break;
 		case CMInfo.CM_DATAGRAM_CHANNEL:
-			m_clientStub.removeAdditionalDatagramChannel(nChIndex);
+			result = m_clientStub.removeAdditionalDatagramChannel(nChPort);
+			if(result)
+				System.out.println("Successfully removed a datagram socket channel: port("+nChPort+")");
+			else
+				System.err.println("Failed to remove a datagram socket channel: port("+nChPort+")");
+
 			break;
 		case CMInfo.CM_MULTICAST_CHANNEL:
-			m_clientStub.removeAdditionalMulticastChannel(nChIndex, strSessionName, strGroupName);
+			result = m_clientStub.removeAdditionalMulticastChannel(strSessionName, strGroupName, strChAddress, nChPort);
+			if(result)
+			{
+				System.out.println("Successfully removed a multicast channel: session("+strSessionName+"), group("
+						+strGroupName+"), address("+strChAddress+"), port("+nChPort+")");
+			}
+			else
+			{
+				System.err.println("Failed to remove a multicast channel: session("+strSessionName+"), group("
+						+strGroupName+"), address("+strChAddress+"), port("+nChPort+")");
+			}
 			break;
 		default:
 			System.out.println("Channel type is incorrect!");
@@ -800,7 +1040,7 @@ public class CMClientApp {
 		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
 		System.out.println("====== set file path");
 		String strPath = null;
-		System.out.print("file path (must end with \'/\'): ");
+		System.out.print("file path: ");
 		try {
 			strPath = br.readLine();
 		} catch (IOException e) {
@@ -808,11 +1048,13 @@ public class CMClientApp {
 			e.printStackTrace();
 		}
 		
+		/*
 		if(!strPath.endsWith("/"))
 		{
 			System.out.println("Invalid file path!");
 			return;
 		}
+		*/
 		
 		//CMFileTransferManager.setFilePath(strPath, m_clientStub.getCMInfo());
 		m_clientStub.setFilePath(strPath);
@@ -1059,7 +1301,7 @@ public class CMClientApp {
 		// start time of downloading contents
 		m_eventHandler.setStartTime(System.currentTimeMillis());
 
-		m_clientStub.requestSNSContent(strUserName, strWriterName, nContentOffset);
+		m_clientStub.requestSNSContent(strWriterName, nContentOffset);
 		if(CMInfo._CM_DEBUG)
 		{
 			System.out.println("["+strUserName+"] requests content of writer["+strWriterName
@@ -1117,8 +1359,7 @@ public class CMClientApp {
 		m_eventHandler.setPrintWriter(pw);
 		m_eventHandler.setSimNum(100);
 
-		String strUserName = m_clientStub.getCMInfo().getInteractionInfo().getMyself().getName();
-		m_clientStub.requestSNSContent(strUserName, "", 0);	// no specific writer, offset = 0
+		m_clientStub.requestSNSContent("", 0);	// no specific writer, offset = 0
 
 		return;
 	}
@@ -1128,6 +1369,8 @@ public class CMClientApp {
 	public void testDownloadNextSNSContent()
 	{
 		System.out.println("===== Request the next SNS content list");
+		// start time of downloading contents
+		m_eventHandler.setStartTime(System.currentTimeMillis());
 		m_clientStub.requestNextSNSContent();
 		
 		return;
@@ -1138,6 +1381,8 @@ public class CMClientApp {
 	public void testDownloadPreviousSNSContent()
 	{
 		System.out.println("===== Request the previous SNS content list");
+		// start time of downloading contents
+		m_eventHandler.setStartTime(System.currentTimeMillis());
 		m_clientStub.requestPreviousSNSContent();
 		
 		return;
@@ -1924,6 +2169,87 @@ public class CMClientApp {
 
 		ie = null;
 		return;
+	}
+	
+	public void testGetBlockSocketChannel()
+	{
+		int nChKey = -1;
+		String strServerName = null;
+		SocketChannel sc = null;
+		CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
+		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
+		
+		if(confInfo.getSystemType().equals("CLIENT"))
+		{
+			CMUser myself = interInfo.getMyself();
+			if(myself.getState() != CMInfo.CM_SESSION_JOIN && myself.getState() != CMInfo.CM_LOGIN)
+			{
+				System.err.println("You should login to the default server.");
+				return;
+			}
+		}
+		
+		System.out.println("============= get blocking socket channel");
+
+		System.out.print("Channel key (>=0): ");
+		nChKey = m_scan.nextInt();
+		
+		if(nChKey < 0)
+		{
+			System.err.println("Invalid channel key: "+nChKey);
+			return;
+		}
+		
+		System.out.print("Server name (\"SERVER\" for the default server): ");
+		strServerName = m_scan.next();
+
+		/*
+		 * scan.next() method never returns before any user given input.
+		 * 
+		if(strServerName == null || strServerName.equals(""))
+			strServerName = "SERVER"; // default server name
+		*/
+
+		sc = m_clientStub.getBlockSocketChannel(nChKey, strServerName);
+		
+		if(sc == null)
+		{
+			System.err.println("Blocking socket channel not found: key("+nChKey+"), server("+strServerName+")");
+		}
+		else
+		{
+			System.out.println("Blocking socket channel found: key("+nChKey+"), server("+strServerName+")");
+		}
+		
+		return;		
+	}
+	
+	public void testMeasureInputThroughput()
+	{
+		String strTarget = null;
+		float fSpeed = -1; // MBps
+		System.out.println("========== test input network throughput");
+		System.out.print("target node (\"SERVER\" for the default server): ");
+		strTarget = m_scan.next();
+		fSpeed = m_clientStub.measureInputThroughput(strTarget);
+		if(fSpeed == -1)
+			System.err.println("Test failed!");
+		else
+			System.out.format("Input network throughput from [%s] : %.2f%n", strTarget, fSpeed);
+	}
+	
+	public void testMeasureOutputThroughput()
+	{
+		String strTarget = null;
+		float fSpeed = -1; // MBps
+		System.out.println("========== test output network throughput");
+		System.out.print("target node (\"SERVER\" for the default server): ");
+		strTarget = m_scan.next();
+		fSpeed = m_clientStub.measureOutputThroughput(strTarget);
+		if(fSpeed == -1)
+			System.err.println("Test failed!");
+		else
+			System.out.format("Output network throughput to [%s] : %.2f%n", strTarget, fSpeed);
 	}
 	
 	public static void main(String[] args) {
