@@ -7,10 +7,12 @@ import kr.ac.konkuk.ccslab.cm.entity.CMGroupInfo;
 import kr.ac.konkuk.ccslab.cm.entity.CMPosition;
 import kr.ac.konkuk.ccslab.cm.entity.CMServer;
 import kr.ac.konkuk.ccslab.cm.entity.CMSession;
+import kr.ac.konkuk.ccslab.cm.entity.CMSessionInfo;
 import kr.ac.konkuk.ccslab.cm.entity.CMUser;
 import kr.ac.konkuk.ccslab.cm.event.CMDummyEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMFileEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMInterestEvent;
+import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
@@ -78,13 +80,17 @@ public class CMClientApp {
 				System.out.println("---------------------------------------------------");
 				System.out.println("0: help, 1: connect to default server, 2: disconnect from default server");
 				System.out.println("3: login to default server, 4: logout from default server");
-				System.out.println("5: request session info from default server, 6: join session of defalut server, 7: leave session of default server");
-				System.out.println("8: user position, 9: chat, 10: test CMDummyEvent, 11: test datagram message");
-				System.out.println("12: test CMUserEvent, 13: print group info, 14: print current user status");
+				System.out.println("5: request session info from default server, 6: join session of defalut server");
+				System.out.println("7: leave session of default server, 8: user position, 9: chat, 10: test CMDummyEvent");
+				System.out.println("11: test datagram message, 12: test CMUserEvent");
+				System.out.println("13: print group info, 14: print current user status");
 				System.out.println("15: change group, 16: add additional channel, 17: remove additional channel");
 				System.out.println("18: set file path, 19: request file, 20: push file");
 				System.out.println("62: cancel receiving file, 63: cancel sending file");
 				System.out.println("21: test forwarding schemes, 22: test delay of forwarding schemes");
+				System.out.println("---------------------------------------------------");
+				System.out.println("73: synchronously login to default server, 74: synchronously request session info");
+				System.out.println("75: synchronoulsy join session of default server");
 				System.out.println("---------------------------------------------------");
 				System.out.println("23: download new SNS content, 50: request attached file of SNS content");
 				System.out.println("51: download next SNS content, 52: download previous SNS content");
@@ -118,14 +124,23 @@ public class CMClientApp {
 			case 3: // login to default server
 				testLoginDS();
 				break;
+			case 73: // synchronously login to default server
+				testSyncLoginDS();
+				break;
 			case 4: // logout from default server
 				testLogoutDS();
 				break;
 			case 5: // request session info from default server
 				testSessionInfoDS();
 				break;
+			case 74: // synchronously request session info
+				testSyncSessionInfoDS();
+				break;
 			case 6: // join a session
 				testJoinSession();
+				break;
+			case 75: // synchronously join a session
+				testSyncJoinSession();
 				break;
 			case 7: // leave the current session
 				testLeaveSession();
@@ -311,6 +326,7 @@ public class CMClientApp {
 		String strUserName = null;
 		String strPassword = null;
 		String strEncPassword = null;
+		boolean bRequestResult = false;
 		Console console = System.console();
 		if(console == null)
 		{
@@ -337,15 +353,80 @@ public class CMClientApp {
 		// encrypt password
 		strEncPassword = CMUtil.getSHA1Hash(strPassword);
 		
-		//m_clientStub.loginCM(strUserName, strPassword);
-		m_clientStub.loginCM(strUserName, strEncPassword);
+		bRequestResult = m_clientStub.loginCM(strUserName, strEncPassword);
+		if(bRequestResult)
+			System.out.println("successfully sent the login request.");
+		else
+			System.err.println("failed the login request!");
 		System.out.println("======");
+	}
+	
+	public void testSyncLoginDS()
+	{
+		String strUserName = null;
+		String strPassword = null;
+		String strEncPassword = null;
+		CMSessionEvent loginAckEvent = null;
+		Console console = System.console();
+		if(console == null)
+		{
+			System.err.println("Unable to obtain console.");
+		}
+		
+		System.out.println("====== login to default server");
+		System.out.print("user name: ");
+		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+		try {
+			strUserName = br.readLine();
+			if(console == null)
+			{
+				System.out.print("password: ");
+				strPassword = br.readLine();
+			}
+			else
+				strPassword = new String(console.readPassword("password: "));
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		// encrypt password
+		strEncPassword = CMUtil.getSHA1Hash(strPassword);
+		
+		loginAckEvent = m_clientStub.syncLoginCM(strUserName, strEncPassword);
+		if(loginAckEvent != null)
+		{
+			// print login result
+			if(loginAckEvent.isValidUser() == 0)
+			{
+				System.err.println("This client fails authentication by the default server!");
+			}
+			else if(loginAckEvent.isValidUser() == -1)
+			{
+				System.err.println("This client is already in the login-user list!");
+			}
+			else
+			{
+				System.out.println("This client successfully logs in to the default server.");
+			}			
+		}
+		else
+		{
+			System.err.println("failed the login request!");
+		}
+
+		System.out.println("======");		
 	}
 	
 	public void testLogoutDS()
 	{
+		boolean bRequestResult = false;
 		System.out.println("====== logout from default server");
-		m_clientStub.logoutCM();
+		bRequestResult = m_clientStub.logoutCM();
+		if(bRequestResult)
+			System.out.println("successfully sent the logout request.");
+		else
+			System.err.println("failed the logout request!");
 		System.out.println("======");
 	}
 	
@@ -357,13 +438,68 @@ public class CMClientApp {
 
 	public void testSessionInfoDS()
 	{
+		boolean bRequestResult = false;
 		System.out.println("====== request session info from default server");
-		m_clientStub.requestSessionInfo();
+		bRequestResult = m_clientStub.requestSessionInfo();
+		if(bRequestResult)
+			System.out.println("successfully sent the session-info request.");
+		else
+			System.err.println("failed the session-info request!");
 		System.out.println("======");
+	}
+	
+	public void testSyncSessionInfoDS()
+	{
+		CMSessionEvent se = null;
+		System.out.println("====== synchronous request session info from default server");
+		se = m_clientStub.syncRequestSessionInfo();
+		if(se == null)
+		{
+			System.err.println("failed the session-info request!");
+			return;
+		}
+
+		// print the request result
+		Iterator<CMSessionInfo> iter = se.getSessionInfoList().iterator();
+
+		System.out.format("%-60s%n", "------------------------------------------------------------");
+		System.out.format("%-20s%-20s%-10s%-10s%n", "name", "address", "port", "user num");
+		System.out.format("%-60s%n", "------------------------------------------------------------");
+
+		while(iter.hasNext())
+		{
+			CMSessionInfo tInfo = iter.next();
+			System.out.format("%-20s%-20s%-10d%-10d%n", tInfo.getSessionName(), tInfo.getAddress(), 
+					tInfo.getPort(), tInfo.getUserNum());
+		}
+
+		System.out.println("======");		
 	}
 	
 	public void testJoinSession()
 	{
+		String strSessionName = null;
+		boolean bRequestResult = false;
+		System.out.println("====== join a session");
+		System.out.print("session name: ");
+		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+		try {
+			strSessionName = br.readLine();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		bRequestResult = m_clientStub.joinSession(strSessionName);
+		if(bRequestResult)
+			System.out.println("successfully sent the session-join request.");
+		else
+			System.err.println("failed the session-join request!");
+		System.out.println("======");
+	}
+	
+	public void testSyncJoinSession()
+	{
+		CMSessionEvent se = null;
 		String strSessionName = null;
 		System.out.println("====== join a session");
 		System.out.print("session name: ");
@@ -374,14 +510,29 @@ public class CMClientApp {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		m_clientStub.joinSession(strSessionName);
-		System.out.println("======");
+		
+		se = m_clientStub.syncJoinSession(strSessionName);
+		if(se != null)
+		{
+			System.out.println("successfully joined a session that has ("+se.getGroupNum()+") groups.");
+		}
+		else
+		{
+			System.err.println("failed the session-join request!");
+		}
+		
+		System.out.println("======");		
 	}
 	
 	public void testLeaveSession()
 	{
+		boolean bRequestResult = false;
 		System.out.println("====== leave the current session");
-		m_clientStub.leaveSession();
+		bRequestResult = m_clientStub.leaveSession();
+		if(bRequestResult)
+			System.out.println("successfully sent the leave-session request.");
+		else
+			System.err.println("failed the leave-session request!");
 		System.out.println("======");
 	}
 	
