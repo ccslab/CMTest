@@ -1,4 +1,5 @@
 import java.io.*;
+import java.nio.channels.DatagramChannel;
 import java.nio.channels.SocketChannel;
 import java.util.*;
 
@@ -111,8 +112,9 @@ public class CMClientApp {
 				System.out.println("46: distribute a file and merge");
 				System.out.println("---------------------------------------------------");
 				System.out.println("47: multicast chat in current group");
-				System.out.println("48: get additional blocking socket channel");
+				System.out.println("48: test blocking channel");
 				System.out.println("60: test input network throughput, 61: test output network throughput");
+				System.out.println("64: print current channels information");
 				System.out.println("99: terminate CM");
 				break;
 			case 1: // connect to default server
@@ -266,7 +268,7 @@ public class CMClientApp {
 				testMulticastChat();
 				break;
 			case 48: // get additional blocking socket channel
-				testGetBlockSocketChannel();
+				testBlockingChannel();
 				break;
 			case 50: // test request for an attached file of SNS content
 				testRequestAttachedFileOfSNSContent();
@@ -288,6 +290,9 @@ public class CMClientApp {
 				break;
 			case 63:	// test cancel sending a file
 				cancelSendFile();
+				break;
+			case 64:	// print current channels information
+				testPrintCurrentChannelInfo();
 				break;
 			case 99: // terminate CM
 				testTermination();
@@ -640,6 +645,7 @@ public class CMClientApp {
 	public void testDatagram()
 	{
 		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
+		CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
 		CMUser myself = interInfo.getMyself();
 
 		if(myself.getState() != CMInfo.CM_SESSION_JOIN)
@@ -650,22 +656,47 @@ public class CMClientApp {
 		
 		String strReceiver = null;
 		String strMessage = null;
-		System.out.println("====== test unicast chatting with datagram");
+		String strSendPort = null;
+		String strRecvPort = null;
+		int nSendPort = 0;
+		int nRecvPort = 0;
+		System.out.println("====== test unicast chatting with non-blocking datagram channels");
 		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.print("receiver: ");
 		try {
+			System.out.print("receiver: ");
 			strReceiver = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		System.out.print("message: ");
-		try {
+			System.out.print("message: ");
 			strMessage = br.readLine();
-		} catch (IOException e) {
+			System.out.print("sender port(enter for default port): ");
+			strSendPort = br.readLine();
+			System.out.print("receiver port(enter for default port): ");
+			strRecvPort = br.readLine();
+		} catch (IOException e1) {
 			// TODO Auto-generated catch block
-			e.printStackTrace();
+			e1.printStackTrace();
 		}
+
+		try {
+			if(strSendPort.isEmpty())
+				nSendPort = confInfo.getUDPPort();
+			else
+				nSendPort = Integer.parseInt(strSendPort);
+		}catch(NumberFormatException ne) {
+			ne.printStackTrace();
+			nSendPort = confInfo.getUDPPort();
+		}
+			
+		try {
+			if(strRecvPort.isEmpty())
+				nRecvPort = 0;
+			else
+				nRecvPort = Integer.parseInt(strRecvPort);			
+		}catch(NumberFormatException ne)
+		{
+			ne.printStackTrace();
+			nRecvPort = 0;
+		}
+		
 		
 		CMInterestEvent ie = new CMInterestEvent();
 		ie.setID(CMInterestEvent.USER_TALK);
@@ -673,7 +704,11 @@ public class CMClientApp {
 		ie.setHandlerGroup(myself.getCurrentGroup());
 		ie.setUserName(myself.getName());
 		ie.setTalk(strMessage);
-		m_clientStub.send(ie, strReceiver, CMInfo.CM_DATAGRAM);
+		
+		if(nRecvPort == 0)
+			m_clientStub.send(ie, strReceiver, CMInfo.CM_DATAGRAM, nSendPort);
+		else
+			m_clientStub.send(ie, strReceiver, CMInfo.CM_DATAGRAM, nSendPort, nRecvPort, false);
 		ie = null;
 		
 		System.out.println("======");
@@ -857,6 +892,7 @@ public class CMClientApp {
 		String strBlock = null;
 		boolean isBlock = false;
 		SocketChannel sc = null;
+		DatagramChannel dc = null;
 		String strSync = null;
 		boolean isSyncCall = false;
 		
@@ -924,8 +960,37 @@ public class CMClientApp {
 			}
 			else if(nChType == CMInfo.CM_DATAGRAM_CHANNEL)
 			{
-				System.out.print("Channel udp port: ");
-				nChPort = m_scan.nextInt();
+				System.out.print("is it a blocking channel? (\"y\": yes, \"n\": no): ");
+				strBlock = m_scan.next();
+				if(strBlock.equals("y")) isBlock = true;
+				else if(strBlock.equals("n")) isBlock = false;
+				else
+				{
+					System.err.println("invalid answer! : "+strBlock);
+					return;
+				}
+			
+				if(isBlock)
+				{
+					System.out.print("Channel udp port: ");
+					nChPort = m_scan.nextInt();
+					if(nChPort < 0)
+					{
+						System.err.println("testAddChannel(), invalid blocking datagram channel key ("+nChPort+")!");
+						return;
+					}
+				}
+				else
+				{
+					System.out.print("Channel udp port: ");
+					nChPort = m_scan.nextInt();
+					if(nChPort <= 0)
+					{
+						System.err.println("testAddChannel(), invalid nonblocking datagram channel key ("+nChPort+")!");
+						return;
+					}
+				}
+
 			}
 			else if(nChType == CMInfo.CM_MULTICAST_CHANNEL)
 			{
@@ -1001,11 +1066,23 @@ public class CMClientApp {
 				
 			break;
 		case CMInfo.CM_DATAGRAM_CHANNEL:
-			bResult = m_clientStub.addDatagramChannel(nChPort);
-			if(bResult)
-				System.out.println("Successfully added a datagram socket channel: port("+nChPort+")");
+			if(isBlock)
+			{
+				dc = m_clientStub.addBlockDatagramChannel(nChPort);
+				if(dc != null)
+					System.out.println("Successfully added a blocking datagram socket channel: port("+nChPort+")");
+				else
+					System.err.println("Failed to add a blocking datagram socket channel: port("+nChPort+")");								
+			}
 			else
-				System.err.println("Failed to add a datagram socket channel: port("+nChPort+")");
+			{
+				dc = m_clientStub.addNonBlockDatagramChannel(nChPort);
+				if(dc != null)
+					System.out.println("Successfully added a non-blocking datagram socket channel: port("+nChPort+")");
+				else
+					System.err.println("Failed to add a non-blocking datagram socket channel: port("+nChPort+")");				
+			}
+			
 			break;
 		case CMInfo.CM_MULTICAST_CHANNEL:
 			bResult = m_clientStub.addMulticastChannel(strSessionName, strGroupName, strChAddress, nChPort);
@@ -1105,8 +1182,18 @@ public class CMClientApp {
 			}
 			else if(nChType ==CMInfo.CM_DATAGRAM_CHANNEL)
 			{
-			System.out.print("Channel udp port: ");
-			nChPort = m_scan.nextInt();			
+				System.out.print("is it a blocking channel? (\"y\": yes, \"n\": no): ");
+				strBlock = m_scan.next();
+				if(strBlock.equals("y")) isBlock = true;
+				else if(strBlock.equals("n")) isBlock = false;
+				else
+				{
+					System.err.println("invalid answer! : "+strBlock);
+					return;
+				}
+
+				System.out.print("Channel udp port: ");
+				nChPort = m_scan.nextInt();			
 			}
 			else if(nChType == CMInfo.CM_MULTICAST_CHANNEL)
 			{
@@ -1165,11 +1252,22 @@ public class CMClientApp {
 			
 			break;
 		case CMInfo.CM_DATAGRAM_CHANNEL:
-			result = m_clientStub.removeAdditionalDatagramChannel(nChPort);
-			if(result)
-				System.out.println("Successfully removed a datagram socket channel: port("+nChPort+")");
+			if(isBlock)
+			{
+				result = m_clientStub.removeBlockDatagramChannel(nChPort);
+				if(result)
+					System.out.println("Successfully removed a blocking datagram socket channel: port("+nChPort+")");
+				else
+					System.err.println("Failed to remove a blocking datagram socket channel: port("+nChPort+")");				
+			}
 			else
-				System.err.println("Failed to remove a datagram socket channel: port("+nChPort+")");
+			{
+				result = m_clientStub.removeNonBlockDatagramChannel(nChPort);
+				if(result)
+					System.out.println("Successfully removed a non-blocking datagram socket channel: port("+nChPort+")");
+				else
+					System.err.println("Failed to remove a non-blocking datagram socket channel: port("+nChPort+")");				
+			}
 
 			break;
 		case CMInfo.CM_MULTICAST_CHANNEL:
@@ -2414,13 +2512,16 @@ public class CMClientApp {
 		return;
 	}
 	
-	public void testGetBlockSocketChannel()
+	public void testBlockingChannel()
 	{
 		int nChKey = -1;
+		int nRecvPort = -1;
 		String strServerName = null;
 		SocketChannel sc = null;
+		DatagramChannel dc = null;
 		CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
 		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
+		boolean isSocketChannel = false;
 		
 		if(confInfo.getSystemType().equals("CLIENT"))
 		{
@@ -2432,37 +2533,69 @@ public class CMClientApp {
 			}
 		}
 		
-		System.out.println("============= get blocking socket channel");
+		System.out.println("============= test blocking channel");
+		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
 
-		System.out.print("Channel key (>=0): ");
-		nChKey = m_scan.nextInt();
-		
-		if(nChKey < 0)
-		{
-			System.err.println("Invalid channel key: "+nChKey);
+		try {
+			System.out.print("Do you want to use a socket channel? (\"y\" or enter: yes, \"n\": no): ");
+			String strIsSocketChannel = br.readLine();
+			if(strIsSocketChannel.isEmpty() || strIsSocketChannel.equals("y") || strIsSocketChannel.equals("yes"))
+			{
+				isSocketChannel = true;
+			}
+			System.out.print("Channel key (>=0 or sender port for datagram channel): ");
+			String strChKey = br.readLine();
+			nChKey = Integer.parseInt(strChKey);
+			System.out.print("Server name(empty for the default server): ");
+			strServerName = br.readLine();
+			if(strServerName.isEmpty()) strServerName = "SERVER";
+			if(!isSocketChannel)
+			{
+				System.out.print("receiver port (only for datagram channel): ");
+				String strRecvPort = br.readLine();
+				nRecvPort = Integer.parseInt(strRecvPort);				
+			}
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			return;
+		} catch (NumberFormatException ne) {
+			ne.printStackTrace();
 			return;
 		}
 		
-		System.out.print("Server name (\"SERVER\" for the default server): ");
-		strServerName = m_scan.next();
-
-		/*
-		 * scan.next() method never returns before any user given input.
-		 * 
-		if(strServerName == null || strServerName.equals(""))
-			strServerName = "SERVER"; // default server name
-		*/
-
-		sc = m_clientStub.getBlockSocketChannel(nChKey, strServerName);
-		
-		if(sc == null)
+		if(isSocketChannel)
 		{
-			System.err.println("Blocking socket channel not found: key("+nChKey+"), server("+strServerName+")");
+			sc = m_clientStub.getBlockSocketChannel(nChKey, strServerName);
+			if(sc == null)
+			{
+				System.err.println("Blocking socket channel not found: key("+nChKey+"), server("+strServerName+")");
+				return;
+			}
+			System.out.println("Blocking socket channel found: key("+nChKey+"), server("+strServerName+")");
 		}
 		else
 		{
-			System.out.println("Blocking socket channel found: key("+nChKey+"), server("+strServerName+")");
+			dc = m_clientStub.getBlockDatagramChannel(nChKey);
+			if(dc == null)
+			{
+				System.err.println("Blocking datagram channel not found: key("+nChKey+")");
+				return;
+			}
+			System.out.println("Blocking datagram channel found: key("+nChKey+")");
 		}
+		
+		CMUserEvent ue = new CMUserEvent();
+		ue.setStringID("reqRecv");
+		ue.setEventField(CMInfo.CM_STR, "user", m_clientStub.getMyself().getName());
+		if(isSocketChannel)
+			ue.setEventField(CMInfo.CM_INT, "chType", Integer.toString(CMInfo.CM_SOCKET_CHANNEL));
+		else
+			ue.setEventField(CMInfo.CM_INT, "chType", Integer.toString(CMInfo.CM_DATAGRAM_CHANNEL));
+		
+		ue.setEventField(CMInfo.CM_INT, "chKey", Integer.toString(nChKey));
+		ue.setEventField(CMInfo.CM_INT, "recvPort", Integer.toString(nRecvPort));
+		m_clientStub.send(ue, strServerName);
 		
 		return;		
 	}
@@ -2494,7 +2627,14 @@ public class CMClientApp {
 		else
 			System.out.format("Output network throughput to [%s] : %.2f%n", strTarget, fSpeed);
 	}
-	
+
+	public void testPrintCurrentChannelInfo()
+	{
+		System.out.println("========== print current channel info");
+		String strChannels = m_clientStub.getCurrentChannelInfo();
+		System.out.println(strChannels);
+	}
+
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
 		CMClientApp client = new CMClientApp();
