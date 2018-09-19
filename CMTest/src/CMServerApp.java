@@ -5,12 +5,15 @@ import kr.ac.konkuk.ccslab.cm.entity.CMUser;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
+import kr.ac.konkuk.ccslab.cm.manager.CMConfigurator;
 import kr.ac.konkuk.ccslab.cm.sns.CMSNSUserAccessSimulator;
 import kr.ac.konkuk.ccslab.cm.stub.CMServerStub;
 
 import java.io.*;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 public class CMServerApp {
@@ -71,6 +74,9 @@ public class CMServerApp {
 			case 0:
 				printAllMenus();
 				break;
+			case 100:
+				startCM();
+				break;
 			case 999:
 				terminateCM();
 				return;
@@ -89,8 +95,14 @@ public class CMServerApp {
 			case 5:	// print current channels information
 				printCurrentChannelInfo();
 				break;
-			case 6:
+			case 6: // print current login users
 				printLoginUsers();
+				break;
+			case 7: // print all current configurations
+				printConfigurations();
+				break;
+			case 8: // change a field value in the configuration file
+				changeConfiguration();
 				break;
 			case 20: // set file path
 				setFilePath();
@@ -162,11 +174,12 @@ public class CMServerApp {
 		System.out.print("---------------------------------- Help\n");
 		System.out.print("0: show all menus\n");
 		System.out.print("---------------------------------- Start/Stop\n");
-		System.out.print("999: terminate CM\n");
+		System.out.print("100: strat CM, 999: terminate CM\n");
 		System.out.print("---------------------------------- Information\n");
 		System.out.print("1: show session information, 2: show group information\n");
 		System.out.print("3: test input network throughput, 4: test output network throughput\n");
 		System.out.print("5: show current channels, 6: show login users\n");
+		System.out.print("7: show all configurations, 8: change configuration\n");
 		System.out.print("---------------------------------- File Transfer\n");
 		System.out.print("20: set file path, 21: request file, 22: push file\n");
 		System.out.print("23: cancel receiving file, 24: cancel sending file\n");
@@ -181,6 +194,50 @@ public class CMServerApp {
 		System.out.print("101: configure SNS user access simulation, 102: start SNS user access simulation\n");
 		System.out.print("103: start SNS user access simulation and measure prefetch accuracy\n");
 		System.out.print("104: start and write recent SNS access history simulation to CM DB\n");
+	}
+	
+	public void startCM()
+	{
+		// get current server info from the server configuration file
+		String strCurServerAddress = null;
+		int nCurServerPort = -1;
+		String strNewServerAddress = null;
+		String strNewServerPort = null;
+		
+		strCurServerAddress = m_serverStub.getServerAddress();
+		nCurServerPort = m_serverStub.getServerPort();
+		
+		// ask the user if he/she would like to change the server info
+		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+		System.out.println("========== start CM");
+		System.out.println("current server address: "+strCurServerAddress);
+		System.out.println("current server port: "+nCurServerPort);
+		
+		try {
+			System.out.print("new server address (enter for current value): ");
+			strNewServerAddress = br.readLine().trim();
+			System.out.print("new server port (enter for current value): ");
+			strNewServerPort = br.readLine().trim();
+
+			// update the server info if the user would like to do
+			if(!strNewServerAddress.isEmpty() && !strNewServerAddress.equals(strCurServerAddress))
+				m_serverStub.setServerAddress(strNewServerAddress);
+			if(!strNewServerPort.isEmpty() && Integer.parseInt(strNewServerPort) != nCurServerPort)
+				m_serverStub.setServerPort(Integer.parseInt(strNewServerPort));
+			
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+		
+		boolean bRet = m_serverStub.startCM();
+		if(!bRet)
+		{
+			System.err.println("CM initialization error!");
+			return;
+		}
+		startTest();
 	}
 	
 	public void terminateCM()
@@ -257,16 +314,7 @@ public class CMServerApp {
 			e.printStackTrace();
 		}
 		
-		/*
-		if(!strPath.endsWith("/"))
-		{
-			System.out.println("Invalid file path!");
-			return;
-		}
-		*/
-		
-		//CMFileTransferManager.setFilePath(strPath, m_serverStub.getCMInfo());
-		m_serverStub.setFilePath(strPath);
+		m_serverStub.setTransferedFileHome(Paths.get(strPath));
 		
 		System.out.println("======");
 	}
@@ -1197,19 +1245,56 @@ public class CMServerApp {
 			}
 		}
 	}
+
+	public void printConfigurations()
+	{
+		String[] strConfigurations;
+		System.out.print("========== print all current configurations\n");
+		Path confPath = m_serverStub.getConfigurationHome().resolve("cm-server.conf");
+		strConfigurations = CMConfigurator.getConfigurations(confPath.toString());
+		
+		System.out.print("configuration file path: "+confPath.toString()+"\n");
+		for(String strConf : strConfigurations)
+		{
+			String[] strFieldValuePair;
+			strFieldValuePair = strConf.split("\\s+");
+			System.out.print(strFieldValuePair[0]+" = "+strFieldValuePair[1]+"\n");
+		}
+	}
+	
+	public void changeConfiguration()
+	{
+		boolean bRet = false;
+		String strField = null;
+		String strValue = null;
+		System.out.println("========== change configuration");
+		Path confPath = m_serverStub.getConfigurationHome().resolve("cm-server.conf");
+		
+		System.out.print("Field name: ");
+		strField = m_scan.next();
+		System.out.print("Value: ");
+		strValue = m_scan.next();
+		
+		bRet = CMConfigurator.changeConfiguration(confPath.toString(), strField, strValue);
+		if(bRet)
+		{
+			System.out.println("cm-server.conf file is successfully updated: ("+strField+"="+strValue+")");
+		}
+		else
+		{
+			System.err.println("The configuration change is failed!: ("+strField+"="+strValue+")");
+		}
+		
+		return;	
+	}
+	
 	
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
 		CMServerApp server = new CMServerApp();
 		CMServerStub cmStub = server.getServerStub();
 		cmStub.setEventHandler(server.getServerEventHandler());
-		boolean bRet = cmStub.startCM();
-		if(!bRet)
-		{
-			System.err.println("CM initialization error!");
-			return;
-		}
-		server.startTest();
+		server.startCM();
 		
 		System.out.println("Server application is terminated.");
 	}

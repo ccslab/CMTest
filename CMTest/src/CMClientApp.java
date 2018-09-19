@@ -1,6 +1,8 @@
 import java.io.*;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
@@ -18,6 +20,7 @@ import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
+import kr.ac.konkuk.ccslab.cm.manager.CMConfigurator;
 import kr.ac.konkuk.ccslab.cm.manager.CMFileTransferManager;
 import kr.ac.konkuk.ccslab.cm.stub.CMClientStub;
 import kr.ac.konkuk.ccslab.cm.util.CMUtil;
@@ -79,6 +82,9 @@ public class CMClientApp {
 			{
 			case 0:
 				printAllMenus();
+				break;
+			case 100:
+				testStartCM();
 				break;
 			case 999:
 				testTerminateCM();
@@ -175,6 +181,12 @@ public class CMClientApp {
 				break;
 			case 56: // test output network throughput
 				testMeasureOutputThroughput();
+				break;
+			case 57: // print all configurations
+				testPrintConfigurations();
+				break;
+			case 58: // change configuration
+				testChangeConfiguration();
 				break;
 			case 60: // add additional channel
 				testAddChannel();
@@ -280,7 +292,7 @@ public class CMClientApp {
 		System.out.println("---------------------------------- Help");
 		System.out.println("0: show all menus");
 		System.out.println("---------------------------------- Start/Stop");
-		System.out.println("999: terminate CM");
+		System.out.println("100: start CM, 999: terminate CM");
 		System.out.println("---------------------------------- Connection");
 		System.out.println("1: connect to default server, 2: disconnect from default server");
 		System.out.println("3: connect to designated server, 4: disconnect from designated server");
@@ -303,6 +315,7 @@ public class CMClientApp {
 		System.out.println("52: show current channels, 53: show current server information");
 		System.out.println("54: show group information of designated server");
 		System.out.println("55: measure input network throughput, 56: measure output network throughput");
+		System.out.println("57: show all configurations, 58: change configuration");
 		System.out.println("---------------------------------- Channel");
 		System.out.println("60: add channel, 61: remove channel, 62: test blocking channel");
 		System.out.println("---------------------------------- File Transfer");
@@ -442,6 +455,49 @@ public class CMClientApp {
 		else
 			System.err.println("failed the logout request!");
 		System.out.println("======");
+	}
+	
+	public void testStartCM()
+	{
+		// get current server info from the server configuration file
+		String strCurServerAddress = null;
+		int nCurServerPort = -1;
+		String strNewServerAddress = null;
+		String strNewServerPort = null;
+		
+		strCurServerAddress = m_clientStub.getServerAddress();
+		nCurServerPort = m_clientStub.getServerPort();
+		
+		// ask the user if he/she would like to change the server info
+		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+		System.out.println("========== start CM");
+		System.out.println("current server address: "+strCurServerAddress);
+		System.out.println("current server port: "+nCurServerPort);
+		
+		try {
+			System.out.print("new server address (enter for current value): ");
+			strNewServerAddress = br.readLine().trim();
+			System.out.print("new server port (enter for current value): ");
+			strNewServerPort = br.readLine().trim();
+
+			// update the server info if the user would like to do
+			if(!strNewServerAddress.isEmpty() && !strNewServerAddress.equals(strCurServerAddress))
+				m_clientStub.setServerAddress(strNewServerAddress);
+			if(!strNewServerPort.isEmpty() && Integer.parseInt(strNewServerPort) != nCurServerPort)
+				m_clientStub.setServerPort(Integer.parseInt(strNewServerPort));
+			
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		boolean bRet = m_clientStub.startCM();
+		if(!bRet)
+		{
+			System.err.println("CM initialization error!");
+			return;
+		}
+		startTest();
 	}
 	
 	public void testTerminateCM()
@@ -1314,16 +1370,7 @@ public class CMClientApp {
 			e.printStackTrace();
 		}
 		
-		/*
-		if(!strPath.endsWith("/"))
-		{
-			System.out.println("Invalid file path!");
-			return;
-		}
-		*/
-		
-		//CMFileTransferManager.setFilePath(strPath, m_clientStub.getCMInfo());
-		m_clientStub.setFilePath(strPath);
+		m_clientStub.setTransferedFileHome(Paths.get(strPath));
 		
 		System.out.println("======");
 	}
@@ -2645,18 +2692,56 @@ public class CMClientApp {
 		System.out.println(strChannels);
 	}
 
+	public void testPrintConfigurations()
+	{
+		String[] strConfigurations;
+		System.out.print("========== print all current configurations\n");
+		Path confPath = m_clientStub.getConfigurationHome().resolve("cm-client.conf");
+		strConfigurations = CMConfigurator.getConfigurations(confPath.toString());
+		
+		System.out.print("configuration file path: "+confPath.toString()+"\n");
+		for(String strConf : strConfigurations)
+		{
+			String[] strFieldValuePair;
+			strFieldValuePair = strConf.split("\\s+");
+			System.out.print(strFieldValuePair[0]+" = "+strFieldValuePair[1]+"\n");
+		}
+		
+	}
+	
+	public void testChangeConfiguration()
+	{
+		boolean bRet = false;
+		String strField = null;
+		String strValue = null;
+		System.out.println("========== change configuration");
+		Path confPath = m_clientStub.getConfigurationHome().resolve("cm-client.conf");
+		
+		System.out.print("Field name: ");
+		strField = m_scan.next();
+		System.out.print("Value: ");
+		strValue = m_scan.next();
+		
+		bRet = CMConfigurator.changeConfiguration(confPath.toString(), strField, strValue);
+		if(bRet)
+		{
+			System.out.println("cm-client.conf file is successfully updated: ("+strField+"="+strValue+")");
+		}
+		else
+		{
+			System.err.println("The configuration change is failed!: ("+strField+"="+strValue+")");
+		}
+		
+		return;
+	}
+
+	
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
 		CMClientApp client = new CMClientApp();
 		CMClientStub cmStub = client.getClientStub();
 		cmStub.setEventHandler(client.getClientEventHandler());
-		boolean bRet = cmStub.startCM();
-		if(!bRet)
-		{
-			System.err.println("CM initialization error!");
-			return;
-		}
-		client.startTest();
+		client.testStartCM();
 		
 		System.out.println("Client application is terminated.");
 	}

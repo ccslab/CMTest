@@ -1,6 +1,9 @@
 import java.io.*;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.Iterator;
@@ -76,6 +79,7 @@ public class CMWinServer extends JFrame {
 		
 		setVisible(true);
 
+		// create CM stub object and set the event handler
 		m_serverStub = new CMServerStub();
 		m_eventHandler = new CMWinServerEventHandler(m_serverStub, this);
 		m_uaSim = new CMSNSUserAccessSimulator();
@@ -169,6 +173,12 @@ public class CMWinServer extends JFrame {
 		JMenuItem outputThroughputMenuItem = new JMenuItem("test output network throughput");
 		outputThroughputMenuItem.addActionListener(menuListener);
 		infoSubMenu.add(outputThroughputMenuItem);
+		JMenuItem showAllConfMenuItem = new JMenuItem("show all configurations");
+		showAllConfMenuItem.addActionListener(menuListener);
+		infoSubMenu.add(showAllConfMenuItem);
+		JMenuItem changeConfMenuItem = new JMenuItem("change configuration");
+		changeConfMenuItem.addActionListener(menuListener);
+		infoSubMenu.add(changeConfMenuItem);
 		
 		serviceMenu.add(infoSubMenu);
 		
@@ -265,8 +275,14 @@ public class CMWinServer extends JFrame {
 		case 5:	// print current channels information
 			printCurrentChannelInfo();
 			break;
-		case 6:
+		case 6: // print current login users
 			printLoginUsers();
+			break;
+		case 7: // print all current configurations
+			printConfigurations();
+			break;
+		case 8: // change a field value in the configuration file
+			changeConfiguration();
 			break;
 		case 20: // set file path
 			setFilePath();
@@ -333,6 +349,7 @@ public class CMWinServer extends JFrame {
 		printMessage("1: show session information, 2: show group information\n");
 		printMessage("3: test input network throughput, 4: test output network throughput\n");
 		printMessage("5: show current channels, 6: show login users\n");
+		printMessage("7: show all configurations, 8: change configuration\n");
 		printMessage("---------------------------------- File Transfer\n");
 		printMessage("20: set file path, 21: request file, 22: push file\n");
 		printMessage("23: cancel receiving file, 24: cancel sending file\n");
@@ -351,8 +368,35 @@ public class CMWinServer extends JFrame {
 	
 	public void startCM()
 	{
+		boolean bRet = false;
+		
+		// get current server info from the server configuration file
+		String strCurServerAddress = null;
+		int nCurServerPort = -1;
+		
+		strCurServerAddress = m_serverStub.getServerAddress();
+		nCurServerPort = m_serverStub.getServerPort();
+		
+		// ask the user if he/she would like to change the server info
+		JTextField serverAddressTextField = new JTextField(strCurServerAddress);
+		JTextField serverPortTextField = new JTextField(String.valueOf(nCurServerPort));
+		Object msg[] = {
+				"Server Address: ", serverAddressTextField,
+				"Server Port: ", serverPortTextField
+		};
+		int option = JOptionPane.showConfirmDialog(null, msg, "Server Information", JOptionPane.OK_CANCEL_OPTION);
+
+		// update the server info if the user would like to do
+		if (option == JOptionPane.OK_OPTION) 
+		{
+			String strNewServerAddress = serverAddressTextField.getText();
+			int nNewServerPort = Integer.parseInt(serverPortTextField.getText());
+			if(!strNewServerAddress.equals(strCurServerAddress) || nNewServerPort != nCurServerPort)
+				m_serverStub.setServerInfo(strNewServerAddress, nNewServerPort);
+		}
+		
 		// start cm
-		boolean bRet = m_serverStub.startCM();
+		bRet = m_serverStub.startCM();
 		if(!bRet)
 		{
 			printStyledMessage("CM initialization error!\n", "bold");
@@ -463,38 +507,17 @@ public class CMWinServer extends JFrame {
 
 	public void setFilePath()
 	{
-		//BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		//System.out.println("====== set file path");
 		printMessage("====== set file path\n");
 		String strPath = null;
-		/*
-		System.out.print("file path (must end with \'/\'): ");
-		try {
-			strPath = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
+
 		strPath = JOptionPane.showInputDialog("file path: ");
 		if(strPath == null)
 		{
 			return;
 		}
 		
-		/*
-		if(!strPath.endsWith("/"))
-		{
-			//System.out.println("Invalid file path!");
-			printMessage("Invalid file path!\n");
-			return;
-		}
-		*/
+		m_serverStub.setTransferedFileHome(Paths.get(strPath));
 		
-		//CMFileTransferManager.setFilePath(strPath, m_serverStub.getCMInfo());
-		m_serverStub.setFilePath(strPath);
-		
-		//System.out.println("======");
 		printMessage("======\n");
 	}
 	
@@ -563,8 +586,8 @@ public class CMWinServer extends JFrame {
 		if(strReceiver == null) return;
 		JFileChooser fc = new JFileChooser();
 		fc.setMultiSelectionEnabled(true);
-		CMFileTransferInfo fInfo = m_serverStub.getCMInfo().getFileTransferInfo();
-		File curDir = new File(fInfo.getFilePath());
+		CMConfigurationInfo confInfo = m_serverStub.getCMInfo().getConfigurationInfo();
+		File curDir = new File(confInfo.getTransferedFileHome().toString());
 		fc.setCurrentDirectory(curDir);
 		int fcRet = fc.showOpenDialog(this);
 		if(fcRet != JFileChooser.APPROVE_OPTION) return;
@@ -1505,6 +1528,59 @@ public class CMWinServer extends JFrame {
 			}
 		}
 	}
+	
+	public void printConfigurations()
+	{
+		String[] strConfigurations;
+		printMessage("========== print all current configurations\n");
+		Path confPath = m_serverStub.getConfigurationHome().resolve("cm-server.conf");
+		strConfigurations = CMConfigurator.getConfigurations(confPath.toString());
+		
+		printMessage("configuration file path: "+confPath.toString()+"\n");
+		for(String strConf : strConfigurations)
+		{
+			String[] strFieldValuePair;
+			strFieldValuePair = strConf.split("\\s+");
+			printMessage(strFieldValuePair[0]+" = "+strFieldValuePair[1]+"\n");
+		}
+	}
+	
+	public void changeConfiguration()
+	{
+		boolean bRet = false;
+		String strField = null;
+		String strValue = null;
+		printMessage("========== change configuration\n");
+		Path confPath = m_serverStub.getConfigurationHome().resolve("cm-server.conf");
+		
+		JTextField fieldTextField = new JTextField();
+		JTextField valueTextField = new JTextField();
+		Object[] msg = {
+			"Field Name:", fieldTextField,
+			"Value:", valueTextField
+		};
+		int nRet = JOptionPane.showConfirmDialog(null, msg, "Change Configuration", JOptionPane.OK_CANCEL_OPTION);
+		if(nRet != JOptionPane.OK_OPTION) return;
+		strField = fieldTextField.getText().trim();
+		strValue = valueTextField.getText().trim();
+		if(strField.isEmpty() || strValue.isEmpty())
+		{
+			printStyledMessage("There is an empty input!\n", "bold");
+			return;
+		}
+		
+		bRet = CMConfigurator.changeConfiguration(confPath.toString(), strField, strValue);
+		if(bRet)
+		{
+			printMessage("cm-server.conf file is successfully updated: ("+strField+"="+strValue+")\n");
+		}
+		else
+		{
+			printStyledMessage("The configuration change is failed!: ("+strField+"="+strValue+")\n", "bold");
+		}
+		
+		return;
+	}
 
 	public void printMessage(String strText)
 	{
@@ -1673,6 +1749,12 @@ public class CMWinServer extends JFrame {
 				break;
 			case "show login users":
 				printLoginUsers();
+				break;
+			case "show all configurations":
+				printConfigurations();
+				break;
+			case "change configuration":
+				changeConfiguration();
 				break;
 			case "test input network throughput":
 				measureInputThroughput();

@@ -1,7 +1,6 @@
 import java.util.*;
 import java.awt.*;
 import java.awt.event.*;
-import java.io.Console;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -10,12 +9,12 @@ import java.io.PrintWriter;
 import java.io.RandomAccessFile;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.Random;
 
 import javax.swing.*;
-import javax.swing.border.Border;
-import javax.swing.border.TitledBorder;
 import javax.swing.text.*;
 
 import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
@@ -31,9 +30,9 @@ import kr.ac.konkuk.ccslab.cm.event.CMInterestEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
-import kr.ac.konkuk.ccslab.cm.info.CMFileTransferInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
+import kr.ac.konkuk.ccslab.cm.manager.CMConfigurator;
 import kr.ac.konkuk.ccslab.cm.manager.CMFileTransferManager;
 import kr.ac.konkuk.ccslab.cm.stub.CMClientStub;
 import kr.ac.konkuk.ccslab.cm.util.CMUtil;
@@ -162,9 +161,11 @@ public class CMWinClient extends JFrame {
 		
 		setVisible(true);
 
+		// create a CM object and set the event handler
 		m_clientStub = new CMClientStub();
 		m_eventHandler = new CMWinClientEventHandler(m_clientStub, this);
-
+		
+		// start CM
 		testStartCM();
 		
 		m_inTextField.requestFocus();
@@ -335,6 +336,12 @@ public class CMWinClient extends JFrame {
 		JMenuItem outThroughputMenuItem = new JMenuItem("measure output network throughput");
 		outThroughputMenuItem.addActionListener(menuListener);
 		infoSubMenu.add(outThroughputMenuItem);
+		JMenuItem showAllConfMenuItem = new JMenuItem("show all configurations");
+		showAllConfMenuItem.addActionListener(menuListener);
+		infoSubMenu.add(showAllConfMenuItem);
+		JMenuItem changeConfMenuItem = new JMenuItem("change configuration");
+		changeConfMenuItem.addActionListener(menuListener);
+		infoSubMenu.add(changeConfMenuItem);
 		
 		cmServiceMenu.add(infoSubMenu);
 		
@@ -357,6 +364,7 @@ public class CMWinClient extends JFrame {
 		fileTransferSubMenu.add(setPathMenuItem);
 		JMenuItem reqFileMenuItem = new JMenuItem("request file");
 		reqFileMenuItem.addActionListener(menuListener);
+		reqFileMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R, ActionEvent.ALT_MASK));
 		fileTransferSubMenu.add(reqFileMenuItem);
 		JMenuItem pushFileMenuItem = new JMenuItem("push file");
 		pushFileMenuItem.addActionListener(menuListener);
@@ -701,6 +709,12 @@ public class CMWinClient extends JFrame {
 		case 56: // test output network throughput
 			testMeasureOutputThroughput();
 			break;
+		case 57: // print all configurations
+			testPrintConfigurations();
+			break;
+		case 58: // change configuration
+			testChangeConfiguration();
+			break;
 		case 60: // add additional channel
 			testAddChannel();
 			break;
@@ -819,6 +833,7 @@ public class CMWinClient extends JFrame {
 		printMessage("52: show current channels, 53: show current server information\n");
 		printMessage("54: show group information of designated server\n");
 		printMessage("55: measure input network throughput, 56: measure output network throughput\n");
+		printMessage("57: show all configurations, 58: change configuration\n");
 		printMessage("---------------------------------- Channel\n");
 		printMessage("60: add channel, 61: remove channel, 62: test blocking channel\n");
 		printMessage("---------------------------------- File Transfer\n");
@@ -991,7 +1006,34 @@ public class CMWinClient extends JFrame {
 
 	public void testStartCM()
 	{
-		boolean bRet = m_clientStub.startCM();
+		boolean bRet = false;
+		
+		// get current server info from the server configuration file
+		String strCurServerAddress = null;
+		int nCurServerPort = -1;
+		
+		strCurServerAddress = m_clientStub.getServerAddress();
+		nCurServerPort = m_clientStub.getServerPort();
+		
+		// ask the user if he/she would like to change the server info
+		JTextField serverAddressTextField = new JTextField(strCurServerAddress);
+		JTextField serverPortTextField = new JTextField(String.valueOf(nCurServerPort));
+		Object msg[] = {
+				"Server Address: ", serverAddressTextField,
+				"Server Port: ", serverPortTextField
+		};
+		int option = JOptionPane.showConfirmDialog(null, msg, "Server Information", JOptionPane.OK_CANCEL_OPTION);
+
+		// update the server info if the user would like to do
+		if (option == JOptionPane.OK_OPTION) 
+		{
+			String strNewServerAddress = serverAddressTextField.getText();
+			int nNewServerPort = Integer.parseInt(serverPortTextField.getText());
+			if(!strNewServerAddress.equals(strCurServerAddress) || nNewServerPort != nCurServerPort)
+				m_clientStub.setServerInfo(strNewServerAddress, nNewServerPort);
+		}
+		
+		bRet = m_clientStub.startCM();
 		if(!bRet)
 		{
 			printStyledMessage("CM initialization error!\n", "bold");
@@ -2109,37 +2151,14 @@ public class CMWinClient extends JFrame {
 
 	public void testSetFilePath()
 	{
-		//BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		//System.out.println("====== set file path");
 		printMessage("====== set file path\n");
 		String strPath = null;
-		
-		/*
-		System.out.print("file path (must end with \'/\'): ");
-		try {
-			strPath = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
 		
 		strPath = JOptionPane.showInputDialog("file path: ");
 		if(strPath == null) return;
 		
-		/*
-		if(!strPath.endsWith("/"))
-		{
-			//System.out.println("Invalid file path!");
-			printMessage("Invalid file path! (must end with \'/\')");
-			return;
-		}
-		*/
+		m_clientStub.setTransferedFileHome(Paths.get(strPath));
 		
-		//CMFileTransferManager.setFilePath(strPath, m_clientStub.getCMInfo());
-		m_clientStub.setFilePath(strPath);
-		
-		//System.out.println("======");
 		printMessage("======\n");
 	}
 
@@ -2167,6 +2186,8 @@ public class CMWinClient extends JFrame {
 			strFileName = fnameField.getText();
 			strFileOwner = fownerField.getText();
 			strFileAppendMode = (String) fAppendBox.getSelectedItem();
+			
+			m_eventHandler.setStartTime(System.currentTimeMillis());	// set the start time of the request
 			
 			if(strFileAppendMode.equals("Default"))
 				bReturn = m_clientStub.requestFile(strFileName, strFileOwner);
@@ -2206,8 +2227,8 @@ public class CMWinClient extends JFrame {
 		if(strReceiver == null) return;
 		JFileChooser fc = new JFileChooser();
 		fc.setMultiSelectionEnabled(true);
-		CMFileTransferInfo fInfo = m_clientStub.getCMInfo().getFileTransferInfo();
-		File curDir = new File(fInfo.getFilePath());
+		CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
+		File curDir = new File(confInfo.getTransferedFileHome().toString());
 		fc.setCurrentDirectory(curDir);
 		int fcRet = fc.showOpenDialog(this);
 		if(fcRet != JFileChooser.APPROVE_OPTION) return;
@@ -2599,21 +2620,6 @@ public class CMWinClient extends JFrame {
 
 		printMessage("====== test SNS content upload\n");
 		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		try {
-			System.out.print("Input message: ");
-			strMessage = br.readLine();
-			System.out.print("Input attached file path (0 for no attachment): ");
-			strFilePath = br.readLine();
-			if(strFilePath.equals("0"))
-				strFilePath="";
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
-		
 		JTextField msgField = new JTextField();
 		JCheckBox attachedFilesBox = new JCheckBox();
 		JTextField replyOfField = new JTextField();
@@ -2650,8 +2656,8 @@ public class CMWinClient extends JFrame {
 			{
 				JFileChooser fc = new JFileChooser();
 				fc.setMultiSelectionEnabled(true);
-				CMFileTransferInfo fInfo = m_clientStub.getCMInfo().getFileTransferInfo();
-				File curDir = new File(fInfo.getFilePath());
+				CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
+				File curDir = new File(confInfo.getTransferedFileHome().toString());
 				fc.setCurrentDirectory(curDir);
 				int fcRet = fc.showOpenDialog(this);
 				if(fcRet == JFileChooser.APPROVE_OPTION)
@@ -3798,6 +3804,60 @@ public class CMWinClient extends JFrame {
 		String strChannels = m_clientStub.getCurrentChannelInfo();
 		printMessage(strChannels);
 	}
+	
+	public void testPrintConfigurations()
+	{
+		String[] strConfigurations;
+		printMessage("========== print all current configurations\n");
+		Path confPath = m_clientStub.getConfigurationHome().resolve("cm-client.conf");
+		strConfigurations = CMConfigurator.getConfigurations(confPath.toString());
+		
+		printMessage("configuration file path: "+confPath.toString()+"\n");
+		for(String strConf : strConfigurations)
+		{
+			String[] strFieldValuePair;
+			strFieldValuePair = strConf.split("\\s+");
+			printMessage(strFieldValuePair[0]+" = "+strFieldValuePair[1]+"\n");
+		}
+		
+	}
+	
+	public void testChangeConfiguration()
+	{
+		boolean bRet = false;
+		String strField = null;
+		String strValue = null;
+		printMessage("========== change configuration\n");
+		Path confPath = m_clientStub.getConfigurationHome().resolve("cm-client.conf");
+		
+		JTextField fieldTextField = new JTextField();
+		JTextField valueTextField = new JTextField();
+		Object[] msg = {
+			"Field Name:", fieldTextField,
+			"Value:", valueTextField
+		};
+		int nRet = JOptionPane.showConfirmDialog(null, msg, "Change Configuration", JOptionPane.OK_CANCEL_OPTION);
+		if(nRet != JOptionPane.OK_OPTION) return;
+		strField = fieldTextField.getText().trim();
+		strValue = valueTextField.getText().trim();
+		if(strField.isEmpty() || strValue.isEmpty())
+		{
+			printStyledMessage("There is an empty input!\n", "bold");
+			return;
+		}
+		
+		bRet = CMConfigurator.changeConfiguration(confPath.toString(), strField, strValue);
+		if(bRet)
+		{
+			printMessage("cm-client.conf file is successfully updated: ("+strField+"="+strValue+")\n");
+		}
+		else
+		{
+			printStyledMessage("The configuration change is failed!: ("+strField+"="+strValue+")\n", "bold");
+		}
+		
+		return;
+	}
 		
 	private void requestAttachedFile(String strFileName)
 	{
@@ -4054,6 +4114,12 @@ public class CMWinClient extends JFrame {
 				break;
 			case "measure output network throughput":
 				testMeasureOutputThroughput();
+				break;
+			case "show all configurations":
+				testPrintConfigurations();
+				break;
+			case "change configuration":
+				testChangeConfiguration();
 				break;
 			case "add channel":
 				testAddChannel();

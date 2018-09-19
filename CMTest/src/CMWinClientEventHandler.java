@@ -18,7 +18,6 @@ import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEventField;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
-import kr.ac.konkuk.ccslab.cm.info.CMFileTransferInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMSNSInfo;
@@ -505,6 +504,8 @@ public class CMWinClientEventHandler implements CMEventHandler{
 	private void processFileEvent(CMEvent cme)
 	{
 		CMFileEvent fe = (CMFileEvent) cme;
+		long lDelay = 0;
+		
 		switch(fe.getID())
 		{
 		case CMFileEvent.REQUEST_FILE_TRANSFER:
@@ -531,12 +532,15 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			//		+fe.getFileSize()+" Bytes).");
 			printMessage("["+fe.getSenderName()+"] completes to send file("+fe.getFileName()+", "
 					+fe.getFileSize()+" Bytes).\n");
+			lDelay = System.currentTimeMillis() - m_lStartTime;
+			printMessage("file-transfer delay: "+lDelay+" ms.\n");
+
 			if(m_bDistFileProc)
 				processFile(fe.getFileName());
 			if(m_bReqAttachedFile)
 			{
-				CMFileTransferInfo fileInfo = m_clientStub.getCMInfo().getFileTransferInfo();
-				String strPath = fileInfo.getFilePath() + File.separator + fe.getFileName();
+				CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
+				String strPath = confInfo.getTransferedFileHome().toString() + File.separator + fe.getFileName();
 				File file = new File(strPath);
 				try {
 					Desktop.getDesktop().open(file);
@@ -560,13 +564,13 @@ public class CMWinClientEventHandler implements CMEventHandler{
 	
 	private void processFile(String strFile)
 	{
-		CMFileTransferInfo fileInfo = m_clientStub.getCMInfo().getFileTransferInfo();
+		CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
 		String strMergeName = null;
 
 		// add file name to list and increase index
 		if(m_nCurrentServerNum == 1)
 		{
-			m_filePieces[m_nRecvPieceNum++] = fileInfo.getFilePath()+File.separator+strFile; 
+			m_filePieces[m_nRecvPieceNum++] = confInfo.getTransferedFileHome().toString()+File.separator+strFile; 
 		}
 		else
 		{
@@ -576,7 +580,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			int nEndIndex = strFile.lastIndexOf(".");
 			int nPieceIndex = Integer.parseInt(strFile.substring(nStartIndex, nEndIndex))-1;
 			
-			m_filePieces[nPieceIndex] = fileInfo.getFilePath()+File.separator+strFile;
+			m_filePieces[nPieceIndex] = confInfo.getTransferedFileHome().toString()+File.separator+strFile;
 			m_nRecvPieceNum++;
 		}
 		
@@ -588,7 +592,8 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			{
 				// set the merged file name m-'file name'.'ext'
 				int index = strFile.lastIndexOf("-");
-				strMergeName = fileInfo.getFilePath()+File.separator+strFile.substring(0, index)+"."+m_strExt;
+				strMergeName = confInfo.getTransferedFileHome().toString()+File.separator+
+						strFile.substring(0, index)+"."+m_strExt;
 
 				// merge split pieces
 				CMFileTransferManager.mergeFiles(m_filePieces, m_nCurrentServerNum, strMergeName);
@@ -804,10 +809,9 @@ public class CMWinClientEventHandler implements CMEventHandler{
 			if(cont.getNumAttachedFiles() > 0)
 			{
 				ArrayList<String> fNameList = cont.getFileNameList();
-				CMFileTransferInfo fInfo = m_clientStub.getCMInfo().getFileTransferInfo();
 				for(int i = 0; i < fNameList.size(); i++)
 				{
-					String fPath = fInfo.getFilePath() + File.separator + fNameList.get(i);
+					String fPath = confInfo.getTransferedFileHome().toString() + File.separator + fNameList.get(i);
 					File file = new File(fPath);
 					
 					// display images (possibly thumbnails)
@@ -839,7 +843,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 							int index = fName.lastIndexOf("-thumbnail.");
 							String ext = fName.substring(index+"-thumbnail".length(), fName.length());
 							fName = fName.substring(0, index)+ext;
-							fPath = fInfo.getFilePath()+File.separator+fName;
+							fPath = confInfo.getTransferedFileHome().toString()+File.separator+fName;
 							file = new File(fPath);
 						}
 					}
@@ -853,7 +857,7 @@ public class CMWinClientEventHandler implements CMEventHandler{
 								int index = fName.lastIndexOf("-thumbnail.");
 								String ext = fName.substring(index+"-thumbnail".length(), fName.length());
 								fName = fName.substring(0, index)+ext;
-								fPath = fInfo.getFilePath()+File.separator+fName;
+								fPath = confInfo.getTransferedFileHome().toString()+File.separator+fName;
 								file = new File(fPath);
 							}
 							else
