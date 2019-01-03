@@ -4,7 +4,7 @@ Communication Framework (CM) is developed to help a developer easily build a cli
 This project includes CM library (cm.jar) and example (server and client) applications.
 
 CM user guide document is available at the link: (https://sites.google.com/site/kuccslab/research/cm).
-CM API document is also locally available at (CM/CM/doc/index.html).
+CM API documents are available at the link: (http://ccslab.github.io/CM), and it is also locally available at (CMTest/docs/index.html).
 
 # Authors
 Copyright (c) 2009-present Collaborative Computing Systems Lab. (CCSLab.), Konkuk University, Korea
