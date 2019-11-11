@@ -1,5 +1,7 @@
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectableChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -10,22 +12,26 @@ import javax.swing.JTextField;
 
 import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
 import kr.ac.konkuk.ccslab.cm.entity.CMGroupInfo;
+import kr.ac.konkuk.ccslab.cm.entity.CMMessage;
 import kr.ac.konkuk.ccslab.cm.entity.CMPosition;
 import kr.ac.konkuk.ccslab.cm.entity.CMServer;
 import kr.ac.konkuk.ccslab.cm.entity.CMSession;
 import kr.ac.konkuk.ccslab.cm.entity.CMSessionInfo;
 import kr.ac.konkuk.ccslab.cm.entity.CMUser;
+import kr.ac.konkuk.ccslab.cm.event.CMBlockingEventQueue;
 import kr.ac.konkuk.ccslab.cm.event.CMDummyEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMFileEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMInterestEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
+import kr.ac.konkuk.ccslab.cm.info.CMCommInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
 import kr.ac.konkuk.ccslab.cm.manager.CMConfigurator;
 import kr.ac.konkuk.ccslab.cm.manager.CMFileTransferManager;
+import kr.ac.konkuk.ccslab.cm.manager.CMMqttManager;
 import kr.ac.konkuk.ccslab.cm.stub.CMClientStub;
 import kr.ac.konkuk.ccslab.cm.util.CMUtil;
 
@@ -288,6 +294,30 @@ public class CMClientApp {
 			case 107: // distribute a file and merge
 				testDistFileProc();
 				break;
+			case 108: // send an event with wrong # bytes
+				testSendEventWithWrongByteNum();
+				break;
+			case 109: // send an event with wrong event type
+				testSendEventWithWrongEventType();
+				break;
+			case 200: // MQTT connect
+				testMqttConnect();
+				break;
+			case 201: // MQTT publish
+				testMqttPublish();
+				break;
+			case 202: // MQTT subscribe
+				testMqttSubscribe();
+				break;
+			case 203: // print MQTT session info
+				testPrintMqttSessionInfo();
+				break;
+			case 204: // MQTT unsubscribe
+				testMqttUnsubscribe();
+				break;
+			case 205: // MQTT disconnect
+				testMqttDisconnect();
+				break;
 			default:
 				System.err.println("Unknown command.");
 				break;
@@ -346,10 +376,14 @@ public class CMClientApp {
 		System.out.println("90: register new user, 91: deregister user, 92: find registered user");
 		System.out.println("93: add new friend, 94: remove friend, 95: show friends, 96: show friend requesters");
 		System.out.println("97: show bi-directional friends");
+		System.out.println("---------------------------------- MQTT");
+		System.out.println("200: connect, 201: publish, 202: subscribe, 203: print session info");
+		System.out.println("204: unsubscribe, 205: disconnect");
 		System.out.println("---------------------------------- Other CM Tests");
 		System.out.println("101: test forwarding scheme, 102: test delay of forwarding scheme");
 		System.out.println("103: test repeated request of SNS content list");
 		System.out.println("104: pull/push multiple files, 105: split file, 106: merge files, 107: distribute and merge file");
+		System.out.println("108: send event with wrong # bytes, 109: send event with wrong type");
 	}
 	
 	public void testConnectionDS()
@@ -906,7 +940,9 @@ public class CMClientApp {
 		}
 		
 		if(strTargetName.isEmpty())
-			strTargetName = "SERVER";
+		{
+			strTargetName = m_clientStub.getDefaultServerName();
+		}
 		
 		long lStartTime = System.currentTimeMillis();
 		rue = (CMUserEvent) m_clientStub.sendrecv(ue, strTargetName, CMInfo.CM_USER_EVENT, 222, 10000);
@@ -1033,7 +1069,7 @@ public class CMClientApp {
 		}
 		
 		if(strTargetName.isEmpty())
-			strTargetName = "SERVER";
+			strTargetName = m_clientStub.getDefaultServerName();
 
 		m_eventHandler.setStartTime(System.currentTimeMillis());
 		bRet = m_clientStub.send(ue, strTargetName);
@@ -1637,7 +1673,7 @@ public class CMClientApp {
 			System.out.print("File owner(enter for \"SERVER\"): ");
 			strFileOwner = br.readLine();
 			if(strFileOwner.isEmpty())
-				strFileOwner = "SERVER";
+				strFileOwner = m_clientStub.getDefaultServerName();
 			System.out.print("File append mode('y'(append);'n'(overwrite);''(empty for the default configuration): ");
 			strFileAppend = br.readLine();
 			
@@ -1675,7 +1711,7 @@ public class CMClientApp {
 			System.out.print("File receiver (enter for \"SERVER\"): ");
 			strReceiver = br.readLine();
 			if(strReceiver.isEmpty())
-				strReceiver = "SERVER";
+				strReceiver = m_clientStub.getDefaultServerName();
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -1810,13 +1846,13 @@ public class CMClientApp {
 				
 				// send the event to a server
 				if(nForwardType == 0)
-					m_clientStub.send(ue, "SERVER");
+					m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 				else if(nForwardType == 1)
 				{
 					if(ue.getStringID().equals("testForward"))
 						m_clientStub.send(ue, strUserName);
 					else
-						m_clientStub.send(ue, "SERVER");
+						m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 				}
 				else
 				{
@@ -1830,7 +1866,7 @@ public class CMClientApp {
 		ue = new CMUserEvent();
 		ue.setStringID("EndSim");
 		ue.setEventField(CMInfo.CM_INT, "simnum", String.valueOf(nSimNum));
-		m_clientStub.send(ue, "SERVER");
+		m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 		
 		ue = null;
 		return;
@@ -1885,7 +1921,7 @@ public class CMClientApp {
 
 			// send an event to a server
 			if(nForwardType == 0)
-				m_clientStub.send(ue, "SERVER");
+				m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 			else if(nForwardType == 1)
 			{
 				m_clientStub.send(ue, strUserName);
@@ -1905,7 +1941,7 @@ public class CMClientApp {
 		ue.setEventField(CMInfo.CM_INT, "sendnum", String.valueOf(nSendNum));
 		
 		if(nForwardType == 0)
-			m_clientStub.send(ue, "SERVER");
+			m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 		else
 			m_clientStub.send(ue, strUserName);
 		
@@ -2292,7 +2328,7 @@ public class CMClientApp {
 		try {
 			System.out.print("Input server name: ");
 			strServerName = br.readLine();
-			if( strServerName.equals("SERVER") )	// login to a default server
+			if( strServerName.equals(m_clientStub.getDefaultServerName()) )	// login to a default server
 			{
 				System.out.print("User name: ");
 				user = br.readLine();
@@ -2411,7 +2447,7 @@ public class CMClientApp {
 			e.printStackTrace();
 		}
 		
-		if(strServerName.equals("SERVER"))
+		if(strServerName.equals(m_clientStub.getDefaultServerName()))
 		{
 			testPrintGroupInfo();
 			return;
@@ -2736,8 +2772,9 @@ public class CMClientApp {
 			CMFileTransferManager.splitFile(raf, lOffset, lFileSize-lPieceSize*i, strPieceName);
 		}
 		// send the last piece to the default server
-		m_clientStub.send(fe, "SERVER");
-		CMFileTransferManager.pushFile(strPieceName, "SERVER", m_clientStub.getCMInfo());
+		m_clientStub.send(fe, m_clientStub.getDefaultServerName());
+		CMFileTransferManager.pushFile(strPieceName, m_clientStub.getDefaultServerName(), 
+				m_clientStub.getCMInfo());
 		
 		try {
 			raf.close();
@@ -2840,7 +2877,7 @@ public class CMClientApp {
 			nChKey = Integer.parseInt(strChKey);
 			System.out.print("Server name(empty for the default server): ");
 			strServerName = br.readLine();
-			if(strServerName.isEmpty()) strServerName = "SERVER";
+			if(strServerName.isEmpty()) strServerName = m_clientStub.getDefaultServerName();
 			if(!isSocketChannel)
 			{
 				System.out.print("receiver port (only for datagram channel): ");
@@ -2969,13 +3006,251 @@ public class CMClientApp {
 		
 		return;
 	}
+	
+	public void testMqttConnect()
+	{
+		System.out.println("========== MQTT connect");
+
+		String strWillTopic = null;
+		String strWillMessage = null;
+		boolean bWillRetain = false;
+		byte willQoS = (byte)0;
+		boolean bWillFlag = false;
+		boolean bCleanSession = false;
+		
+		boolean bDetail = false;
+		System.out.print("Need all parameters? (\"y\" or \"n\", Enter for no): ");
+		String strDetail = m_scan.nextLine().trim();
+		if(strDetail.contentEquals("y"))
+			bDetail = true;
+		
+		if(bDetail)
+		{
+			System.out.print("Will Topic (Enter for empty string): ");
+			strWillTopic = m_scan.nextLine().trim();
+			System.out.print("Will Message Enter for empty string): ");
+			strWillMessage = m_scan.nextLine().trim();
+			System.out.print("Will Retain Flag (\"true\" or \"false\", Enter for false): ");
+			String strWillRetain = m_scan.nextLine().trim();
+			if(strWillRetain.contentEquals("true"))
+				bWillRetain = true;
+			System.out.print("Will QoS (0,1, or 2, Enter for 0): ");
+			String strWillQoS = m_scan.nextLine().trim();
+			if(strWillQoS.contentEquals("1") || strWillQoS.contentEquals("2"))
+				willQoS = Byte.parseByte(strWillQoS);
+			else if(!strWillQoS.contentEquals("0") && !strWillQoS.isEmpty())
+			{
+				System.err.println("Wrong QoS! QoS is set to 0!");
+			}
+			System.out.print("Will Flag (\"true\" or \"false\", Enter for false): ");
+			String strWillFlag = m_scan.nextLine().trim();
+			if(strWillFlag.contentEquals("true"))
+				bWillFlag = true;
+			System.out.print("Clean Session Flag (\"true\" or \"false\", Enter for false): ");
+			String strCleanSession = m_scan.nextLine().trim();
+			if(strCleanSession.contentEquals("true"))
+				bCleanSession = true;			
+		}
+		
+		CMMqttManager mqttManager = (CMMqttManager) m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			System.err.println("CMMqttManager is null!");
+			return;
+		}
+		
+		if(bDetail)
+		{
+			mqttManager.connect(strWillTopic, strWillMessage, bWillRetain, willQoS, bWillFlag, 
+					bCleanSession);
+		}
+		else {
+			mqttManager.connect();
+		}
+
+	}
+	
+	public void testMqttPublish()
+	{
+		System.out.println("========== MQTT publish");
+		
+		String strTopic = null;
+		String strMessage = null;
+		byte qos = (byte)0;
+		boolean bDupFlag = false;
+		boolean bRetainFlag = false;
+		
+		boolean bDetail = false;
+		System.out.print("Need all parameters? (\"y\" or \"n\", Enter for no): ");
+		String strDetail = m_scan.nextLine().trim();
+		if(strDetail.contentEquals("y"))
+			bDetail = true;
+
+		System.out.print("Topic Name: ");
+		strTopic = m_scan.nextLine().trim();
+		System.out.print("Application Message: ");
+		strMessage = m_scan.nextLine().trim();
+		
+		if(bDetail)
+		{
+			System.out.print("QoS (0,1, or 2, Enter for 0): ");
+			String strQoS = m_scan.nextLine().trim();
+			if(strQoS.contentEquals("1") || strQoS.contentEquals("2"))
+				qos = Byte.parseByte(strQoS);
+			else if(!strQoS.contentEquals("0") && !strQoS.isEmpty())
+			{
+				System.err.println("Wrong QoS! QoS is set to 0!");
+			}
+			System.out.print("DUP Flag (\"true\" or \"false\", Enter for false): ");
+			String strDupFlag = m_scan.nextLine().trim();
+			if(strDupFlag.contentEquals("true"))
+				bDupFlag = true;
+			System.out.print("Retain Flag (\"true\" or \"false\", Enter for false): ");
+			String strRetainFlag = m_scan.nextLine().trim();
+			if(strRetainFlag.contentEquals("true"))
+				bRetainFlag = true;
+		}
+		
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			System.err.println("CMMqttManager is null!");
+			return;
+		}
+		
+		if(bDetail)
+		{
+			mqttManager.publish(strTopic, strMessage, qos, bDupFlag, bRetainFlag);			
+		}
+		else
+		{
+			mqttManager.publish(strTopic, strMessage);
+		}
+
+	}
+	
+	public void testMqttSubscribe()
+	{
+		System.out.println("========== MQTT subscribe");
+		String strTopicFilter;
+		byte qos = (byte)0;
+		
+		System.out.print("Topic Filter: ");
+		strTopicFilter = m_scan.nextLine().trim();
+		String strQoS = null;
+		strQoS = m_scan.nextLine().trim();
+		if(strQoS.contentEquals("1") || strQoS.contentEquals("2"))
+			qos = Byte.parseByte(strQoS);
+		else if(!strQoS.contentEquals("0") && !strQoS.isEmpty())
+		{
+			System.err.println("Wrong QoS! QoS is set to 0!");
+		}
+		
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			System.err.println("CMMqttManager is null!");
+			return;
+		}
+		mqttManager.subscribe(strTopicFilter, qos);
+
+	}
+	
+	public void testPrintMqttSessionInfo()
+	{
+		System.out.println("========== print MQTT session info");
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			System.err.println("CMMqttManager is null!");
+			return;
+		}
+		System.out.println(mqttManager.getMySessionInfo());
+		
+	}
+	
+	public void testMqttUnsubscribe()
+	{
+		System.out.println("========== MQTT unsubscribe");
+		String strTopic = null;
+		System.out.print("Topic to unsubscribe: ");
+		strTopic = m_scan.nextLine().trim();
+		if(strTopic == null || strTopic.isEmpty())
+			return;
+
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			System.err.println("CMMqttManager is null!");
+			return;
+		}
+		mqttManager.unsubscribe(strTopic);
+
+	}
+	
+	public void testMqttDisconnect()
+	{
+		System.out.println("========== MQTT disconnect");
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			System.err.println("CMMqttManager is null!");
+			return;
+		}
+		mqttManager.disconnect();
+
+	}
+	
+	public void testSendEventWithWrongByteNum()
+	{
+		System.out.println("========== send a CMDummyEvent with wrong # bytes to default server");
+		
+		CMCommInfo commInfo = m_clientStub.getCMInfo().getCommInfo();
+		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
+		CMBlockingEventQueue sendQueue = commInfo.getSendBlockingEventQueue();
+
+		String strServer = JOptionPane.showInputDialog("server name: ").trim();
+		SelectableChannel ch = null;
+		if(strServer.contentEquals(m_clientStub.getDefaultServerName()))
+		{
+			CMServer defServer = interInfo.getDefaultServerInfo();
+			ch = defServer.getNonBlockSocketChannelInfo().findChannel(0);
+		}
+		else {
+			CMServer addServer = interInfo.findAddServer(strServer);
+			if(addServer == null)
+			{
+				System.err.println("No server["+strServer+"] found!");
+				return;
+			}
+			ch = addServer.getNonBlockSocketChannelInfo().findChannel(0);
+		}		
+		
+		CMDummyEvent due = new CMDummyEvent();
+		ByteBuffer buf = due.marshall();
+		buf.clear();
+		buf.putInt(-1).clear();
+		CMMessage msg = new CMMessage(buf, ch);
+		sendQueue.push(msg);
+	}
+	
+	public void testSendEventWithWrongEventType()
+	{
+		System.out.println("========== send a CMDummyEvent with wrong event type");
+		
+		String strServer = JOptionPane.showInputDialog("server name: ").trim();
+
+		CMDummyEvent due = new CMDummyEvent();
+		due.setType(-1);	// set wrong event type
+		m_clientStub.send(due, strServer);
+	}
 
 	
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
 		CMClientApp client = new CMClientApp();
 		CMClientStub cmStub = client.getClientStub();
-		cmStub.setEventHandler(client.getClientEventHandler());
+		cmStub.setAppEventHandler(client.getClientEventHandler());
 		client.testStartCM();
 		
 		System.out.println("Client application is terminated.");

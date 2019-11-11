@@ -1,21 +1,31 @@
 import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
 import kr.ac.konkuk.ccslab.cm.entity.CMMember;
+import kr.ac.konkuk.ccslab.cm.entity.CMMessage;
+import kr.ac.konkuk.ccslab.cm.entity.CMServer;
 import kr.ac.konkuk.ccslab.cm.entity.CMSession;
 import kr.ac.konkuk.ccslab.cm.entity.CMUser;
+import kr.ac.konkuk.ccslab.cm.event.CMBlockingEventQueue;
+import kr.ac.konkuk.ccslab.cm.event.CMDummyEvent;
+import kr.ac.konkuk.ccslab.cm.info.CMCommInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
 import kr.ac.konkuk.ccslab.cm.manager.CMCommManager;
 import kr.ac.konkuk.ccslab.cm.manager.CMConfigurator;
+import kr.ac.konkuk.ccslab.cm.manager.CMMqttManager;
 import kr.ac.konkuk.ccslab.cm.sns.CMSNSUserAccessSimulator;
 import kr.ac.konkuk.ccslab.cm.stub.CMServerStub;
 
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectableChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+
+import javax.swing.JOptionPane;
 
 public class CMServerApp {
 	private CMServerStub m_serverStub;
@@ -141,6 +151,15 @@ public class CMServerApp {
 			case 51: 	// test remove channel
 				removeChannel();
 				break;	
+			case 60:	// find session info
+				findMqttSessionInfo();
+				break;
+			case 61:	// print all session info
+				printAllMqttSessionInfo();
+				break;
+			case 62:	// print all retain info
+				printAllMqttRetainInfo();
+				break;
 			case 101:	// configure variables of user access simulation
 				configureUserAccessSimulation();
 				break;
@@ -152,6 +171,12 @@ public class CMServerApp {
 				break;
 			case 104: 	// configure, simulate and write recent history to CMDB
 				writeRecentAccHistoryToDB();
+				break;
+			case 105:	// send event with wrong # bytes
+				sendEventWithWrongByteNum();
+				break;
+			case 106:	// send event with wrong type
+				sendEventWithWrongEventType();
 				break;
 			default:
 				System.err.println("Unknown command.");
@@ -191,10 +216,13 @@ public class CMServerApp {
 		System.out.print("40: set attachment download scheme\n");
 		System.out.print("---------------------------------- Channel\n");
 		System.out.print("50: add channel, 51: remove channel\n");
+		System.out.print("---------------------------------- MQTT\n");
+		System.out.print("60: find session info, 61: print all session info, 62: print all retain info\n");
 		System.out.print("---------------------------------- Other CM Tests\n");
 		System.out.print("101: configure SNS user access simulation, 102: start SNS user access simulation\n");
 		System.out.print("103: start SNS user access simulation and measure prefetch accuracy\n");
 		System.out.print("104: start and write recent SNS access history simulation to CM DB\n");
+		System.out.print("105: send event with wrong bytes, 106: send event with wrong type\n");
 	}
 	
 	public void startCM()
@@ -1303,12 +1331,115 @@ public class CMServerApp {
 		return;	
 	}
 	
+	public void findMqttSessionInfo()
+	{
+		System.out.println("========== find MQTT session info");
+		String strUser = null;
+		System.out.print("User Name: ");
+		strUser = m_scan.nextLine().trim();
+		if(strUser == null || strUser.isEmpty()) 
+			return;
+		
+		CMMqttManager mqttManager = (CMMqttManager)m_serverStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			System.err.println("CMMqttManager is null!");
+			return;
+		}
+		System.out.println("MQTT session of \""+strUser+"\" is ");
+		System.out.println(mqttManager.getSessionInfo(strUser));
+		
+		return;
+	}
+	
+	public void printAllMqttSessionInfo()
+	{
+		System.out.println("========== print all MQTT session info");
+		CMMqttManager mqttManager = (CMMqttManager)m_serverStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			System.err.println("CMMqttManager is null!");
+			return;
+		}
+		System.out.println(mqttManager.getAllSessionInfo());
+		
+		return;
+		
+	}
+	
+	public void printAllMqttRetainInfo()
+	{
+		System.out.println("=========== print all MQTT retain info");
+		CMMqttManager mqttManager = (CMMqttManager)m_serverStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			System.err.println("CMMqttManager is null!");
+			return;
+		}
+		System.out.println(mqttManager.getAllRetainInfo());
+		
+		return;
+	}
+	
+	public void sendEventWithWrongByteNum()
+	{
+		System.out.println("========== send a CMDummyEvent with wrong # bytes to a client");
+		
+		CMCommInfo commInfo = m_serverStub.getCMInfo().getCommInfo();
+		CMInteractionInfo interInfo = m_serverStub.getCMInfo().getInteractionInfo();
+		CMBlockingEventQueue sendQueue = commInfo.getSendBlockingEventQueue();
+		
+		String strTarget = JOptionPane.showInputDialog("target client or server name: ").trim();
+		SelectableChannel ch = null;
+		CMUser user = interInfo.getLoginUsers().findMember(strTarget);
+		CMServer server = null;
+
+		String strDefServer = interInfo.getDefaultServerInfo().getServerName();
+		if(user != null)
+		{
+			ch = user.getNonBlockSocketChannelInfo().findChannel(0);
+		}
+		else if(strTarget.contentEquals(strDefServer))
+		{
+			ch = interInfo.getDefaultServerInfo().getNonBlockSocketChannelInfo().findChannel(0);
+		}
+		else
+		{
+			server = interInfo.findAddServer(strTarget);
+			if(server != null)
+			{
+				ch = server.getNonBlockSocketChannelInfo().findChannel(0);
+			}
+			else {
+				System.err.println("["+strTarget+"] not found!");
+				return;
+			}
+		}
+		
+		CMDummyEvent due = new CMDummyEvent();
+		ByteBuffer buf = due.marshall();
+		CMMessage msg = new CMMessage(buf, ch);
+		sendQueue.push(msg);
+
+	}
+	
+	public void sendEventWithWrongEventType()
+	{
+		System.out.println("========== send a CMDummyEvent with wrong event type");
+		
+		System.out.print("target server or client name: ");
+		String strTarget = m_scan.next().trim();
+
+		CMDummyEvent due = new CMDummyEvent();
+		due.setType(-1);	// set wrong event type
+		m_serverStub.send(due, strTarget);
+	}
 	
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
 		CMServerApp server = new CMServerApp();
 		CMServerStub cmStub = server.getServerStub();
-		cmStub.setEventHandler(server.getServerEventHandler());
+		cmStub.setAppEventHandler(server.getServerEventHandler());
 		server.startCM();
 		
 		System.out.println("Server application is terminated.");

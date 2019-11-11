@@ -5,7 +5,6 @@ import java.nio.channels.SocketChannel;
 
 import kr.ac.konkuk.ccslab.cm.event.CMDummyEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMEvent;
-import kr.ac.konkuk.ccslab.cm.event.CMEventHandler;
 import kr.ac.konkuk.ccslab.cm.event.CMFileEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMInterestEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMMultiServerEvent;
@@ -13,6 +12,17 @@ import kr.ac.konkuk.ccslab.cm.event.CMSNSEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEventField;
+import kr.ac.konkuk.ccslab.cm.event.handler.CMAppEventHandler;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEvent;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEventCONNECT;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEventDISCONNECT;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEventPUBACK;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEventPUBCOMP;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEventPUBLISH;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEventPUBREC;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEventPUBREL;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEventSUBSCRIBE;
+import kr.ac.konkuk.ccslab.cm.event.mqttevent.CMMqttEventUNSUBSCRIBE;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.manager.CMDBManager;
@@ -20,7 +30,7 @@ import kr.ac.konkuk.ccslab.cm.manager.CMFileTransferManager;
 import kr.ac.konkuk.ccslab.cm.manager.CMInteractionManager;
 import kr.ac.konkuk.ccslab.cm.stub.CMServerStub;
 
-public class CMWinServerEventHandler implements CMEventHandler {
+public class CMWinServerEventHandler implements CMAppEventHandler {
 	private CMWinServer m_server;
 	private CMServerStub m_serverStub;
 	private int m_nCheckCount;	// for internal forwarding simulation
@@ -59,6 +69,9 @@ public class CMWinServerEventHandler implements CMEventHandler {
 			break;
 		case CMInfo.CM_MULTI_SERVER_EVENT:
 			processMultiServerEvent(cme);
+			break;
+		case CMInfo.CM_MQTT_EVENT:
+			processMqttEvent(cme);
 			break;
 		default:
 			return;
@@ -130,6 +143,14 @@ public class CMWinServerEventHandler implements CMEventHandler {
 		case CMSessionEvent.FIND_REGISTERED_USER:
 			//System.out.println("User profile requested for user["+se.getUserName()+"].");
 			printMessage("User profile requested for user["+se.getUserName()+"].\n");
+			break;
+		case CMSessionEvent.UNEXPECTED_SERVER_DISCONNECTION:
+			m_server.printStyledMessage("Unexpected disconnection from ["
+					+se.getChannelName()+"] with key["+se.getChannelNum()+"]!\n", "bold");
+			break;
+		case CMSessionEvent.INTENTIONALLY_DISCONNECT:
+			m_server.printStyledMessage("Intentionally disconnected all channels from ["
+					+se.getChannelName()+"]!\n", "bold");
 			break;
 		default:
 			return;
@@ -522,9 +543,6 @@ public class CMWinServerEventHandler implements CMEventHandler {
 		switch(mse.getID())
 		{
 		case CMMultiServerEvent.REQ_SERVER_REG:
-			//System.out.println("server ("+mse.getServerName()+") requests registration: ip("
-			//		+mse.getServerAddress()+"), port("+mse.getServerPort()+"), udpport("
-			//		+mse.getServerUDPPort()+").");
 			printMessage("server ("+mse.getServerName()+") requests registration: ip("
 					+mse.getServerAddress()+"), port("+mse.getServerPort()+"), udpport("
 					+mse.getServerUDPPort()+").\n");
@@ -532,35 +550,27 @@ public class CMWinServerEventHandler implements CMEventHandler {
 		case CMMultiServerEvent.RES_SERVER_REG:
 			if( mse.getReturnCode() == 1 )
 			{
-				//System.out.println("server["+mse.getServerName()+"] is successfully registered "
-				//		+ "to the default server.");
+				m_server.updateTitle();
 				printMessage("server["+mse.getServerName()+"] is successfully registered "
 						+ "to the default server.\n");
 			}
 			else
 			{
-				//System.out.println("server["+mse.getServerName()+"] is not registered to the "
-				//		+ "default server.");
 				printMessage("server["+mse.getServerName()+"] is not registered to the "
 						+ "default server.\n");
 			}
 			break;
 		case CMMultiServerEvent.REQ_SERVER_DEREG:
-			//System.out.println("server["+mse.getServerName()+"] requests deregistration.");
 			printMessage("server["+mse.getServerName()+"] requests deregistration.\n");
 			break;
 		case CMMultiServerEvent.RES_SERVER_DEREG:
 			if( mse.getReturnCode() == 1 )
 			{
-				//System.out.println("server["+mse.getServerName()+"] is successfully deregistered "
-				//		+ "from the default server.");
 				printMessage("server["+mse.getServerName()+"] is successfully deregistered "
 						+ "from the default server.\n");
 			}
 			else
 			{
-				//System.out.println("server["+mse.getServerName()+"] is not deregistered from the "
-				//		+ "default server.");
 				printMessage("server["+mse.getServerName()+"] is not deregistered from the "
 						+ "default server.\n");
 			}
@@ -571,23 +581,63 @@ public class CMWinServerEventHandler implements CMEventHandler {
 				// user authentication omitted for the login to an additional server
 				CMInteractionManager.replyToADD_LOGIN(mse, true, m_serverStub.getCMInfo());
 			}
-			//System.out.println("["+mse.getUserName()+"] requests login to this server("
-			//					+mse.getServerName()+").");
 			printMessage("["+mse.getUserName()+"] requests login to this server("
 								+mse.getServerName()+").\n");
 			break;
 		case CMMultiServerEvent.ADD_LOGOUT:
-			//System.out.println("["+mse.getUserName()+"] log out this server("+mse.getServerName()
-			//		+").");
 			printMessage("["+mse.getUserName()+"] log out this server("+mse.getServerName()
 					+").\n");
 			break;
 		case CMMultiServerEvent.ADD_REQUEST_SESSION_INFO:
-			//System.out.println("["+mse.getUserName()+"] requests session information.");
 			printMessage("["+mse.getUserName()+"] requests session information.\n");
 			break;
 		}
 
+		return;
+	}
+	
+	private void processMqttEvent(CMEvent cme)
+	{
+		switch(cme.getID())
+		{
+		case CMMqttEvent.CONNECT:
+			CMMqttEventCONNECT conEvent = (CMMqttEventCONNECT)cme;
+			printMessage("received "+conEvent.toString()+"\n");
+			break;
+		case CMMqttEvent.PUBLISH:
+			CMMqttEventPUBLISH pubEvent = (CMMqttEventPUBLISH)cme;
+			printMessage("received "+pubEvent.toString()+"\n");
+			break;
+		case CMMqttEvent.PUBACK:
+			CMMqttEventPUBACK pubackEvent = (CMMqttEventPUBACK)cme;
+			printMessage("received "+pubackEvent.toString()+"\n");
+			break;
+		case CMMqttEvent.PUBREC:
+			CMMqttEventPUBREC pubrecEvent = (CMMqttEventPUBREC)cme;
+			printMessage("received "+pubrecEvent.toString()+"\n");
+			break;
+		case CMMqttEvent.PUBREL:
+			CMMqttEventPUBREL pubrelEvent = (CMMqttEventPUBREL)cme;
+			printMessage("received "+pubrelEvent.toString()+"\n");
+			break;
+		case CMMqttEvent.PUBCOMP:
+			CMMqttEventPUBCOMP pubcompEvent = (CMMqttEventPUBCOMP)cme;
+			printMessage("received "+pubcompEvent.toString()+"\n");
+			break;
+		case CMMqttEvent.SUBSCRIBE:
+			CMMqttEventSUBSCRIBE subEvent = (CMMqttEventSUBSCRIBE)cme;
+			printMessage("received "+subEvent.toString()+"\n");
+			break;
+		case CMMqttEvent.UNSUBSCRIBE:
+			CMMqttEventUNSUBSCRIBE unsubEvent = (CMMqttEventUNSUBSCRIBE)cme;
+			printMessage("received "+unsubEvent.toString()+"\n");
+			break;
+		case CMMqttEvent.DISCONNECT:
+			CMMqttEventDISCONNECT disconEvent = (CMMqttEventDISCONNECT)cme;
+			printMessage("received "+disconEvent.toString()+"\n");
+			break;
+		}
+		
 		return;
 	}
 	

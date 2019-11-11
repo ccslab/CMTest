@@ -7,7 +7,9 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectableChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -19,24 +21,28 @@ import javax.swing.text.*;
 
 import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
 import kr.ac.konkuk.ccslab.cm.entity.CMGroupInfo;
+import kr.ac.konkuk.ccslab.cm.entity.CMMessage;
 import kr.ac.konkuk.ccslab.cm.entity.CMPosition;
 import kr.ac.konkuk.ccslab.cm.entity.CMServer;
 import kr.ac.konkuk.ccslab.cm.entity.CMSession;
 import kr.ac.konkuk.ccslab.cm.entity.CMSessionInfo;
 import kr.ac.konkuk.ccslab.cm.entity.CMUser;
+import kr.ac.konkuk.ccslab.cm.event.CMBlockingEventQueue;
 import kr.ac.konkuk.ccslab.cm.event.CMDummyEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMFileEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMInterestEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
+import kr.ac.konkuk.ccslab.cm.info.CMCommInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
 import kr.ac.konkuk.ccslab.cm.manager.CMConfigurator;
+import kr.ac.konkuk.ccslab.cm.manager.CMEventManager;
 import kr.ac.konkuk.ccslab.cm.manager.CMFileTransferManager;
+import kr.ac.konkuk.ccslab.cm.manager.CMMqttManager;
 import kr.ac.konkuk.ccslab.cm.stub.CMClientStub;
-import kr.ac.konkuk.ccslab.cm.util.CMUtil;
 
 public class CMWinClient extends JFrame {
 
@@ -340,6 +346,9 @@ public class CMWinClient extends JFrame {
 		JMenuItem channelInfoMenuItem = new JMenuItem("show current channels");
 		channelInfoMenuItem.addActionListener(menuListener);
 		infoSubMenu.add(channelInfoMenuItem);
+		JMenuItem serverInfoMenuItem = new JMenuItem("show current server information");
+		serverInfoMenuItem.addActionListener(menuListener);
+		infoSubMenu.add(serverInfoMenuItem);
 		JMenuItem groupInfoDesigMenuItem = new JMenuItem("show group information of designated server");
 		groupInfoDesigMenuItem.addActionListener(menuListener);
 		infoSubMenu.add(groupInfoDesigMenuItem);
@@ -599,14 +608,6 @@ public class CMWinClient extends JFrame {
 		printMessage("\n");
 	}
 
-	/*
-	private void setMessage(String strText)
-	{
-		m_outTextArea.setText(strText);
-		m_outTextArea.setCaretPosition(m_outTextArea.getDocument().getLength());
-	}
-	*/
-	
 	public void processInput(String strInput)
 	{
 		int nCommand = -1;
@@ -823,6 +824,30 @@ public class CMWinClient extends JFrame {
 		case 107: // distribute a file and merge
 			testDistFileProc();
 			break;
+		case 108: // send an event with wrong # bytes
+			testSendEventWithWrongByteNum();
+			break;
+		case 109: // send an event with wrong event type
+			testSendEventWithWrongEventType();
+			break;
+		case 200: // MQTT connect
+			testMqttConnect();
+			break;
+		case 201: // MQTT publish
+			testMqttPublish();
+			break;
+		case 202: // MQTT subscribe
+			testMqttSubscribe();
+			break;
+		case 203: // print MQTT session info
+			testPrintMqttSessionInfo();
+			break;
+		case 204: // MQTT unsubscribe
+			testMqttUnsubscribe();
+			break;
+		case 205: // MQTT disconnect
+			testMqttDisconnect();
+			break;
 		default:
 			System.err.println("Unknown command.");
 			break;
@@ -872,15 +897,18 @@ public class CMWinClient extends JFrame {
 		printMessage("90: register new user, 91: deregister user, 92: find registered user\n");
 		printMessage("93: add new friend, 94: remove friend, 95: show friends, 96: show friend requesters\n");
 		printMessage("97: show bi-directional friends\n");
+		printMessage("---------------------------------- MQTT\n");
+		printMessage("200: connect, 201: publish, 202: subscribe, 203: print session info\n");
+		printMessage("204: unsubscribe, 205: disconnect \n");
 		printMessage("---------------------------------- Other CM Tests\n");
 		printMessage("101: test forwarding scheme, 102: test delay of forwarding scheme\n");
 		printMessage("103: test repeated request of SNS content list\n");
 		printMessage("104: pull/push multiple files, 105: split file, 106: merge files, 107: distribute and merge file\n");
+		printMessage("108: send event with wrong # bytes, 109: send event with wrong type\n");
 	}
 	
 	public void testConnectionDS()
 	{
-		//System.out.println("====== connect to default server\n");
 		printMessage("====== connect to default server\n");
 		boolean ret = m_clientStub.connectToServer();
 		if(ret)
@@ -891,13 +919,11 @@ public class CMWinClient extends JFrame {
 		{
 			printMessage("Cannot connect to the default server!\n");
 		}
-		//System.out.println("======");
 		printMessage("======\n");
 	}
 	
 	public void testDisconnectionDS()
 	{
-		//System.out.println("====== disconnect from default server");
 		printMessage("====== disconnect from default server\n");
 		boolean ret = m_clientStub.disconnectFromServer();
 		if(ret)
@@ -908,7 +934,6 @@ public class CMWinClient extends JFrame {
 		{
 			printMessage("Error while disconnecting from the default server!");
 		}
-		//System.out.println("======");
 		printMessage("======\n");
 		
 		setButtonsAccordingToClientState();
@@ -1191,27 +1216,9 @@ public class CMWinClient extends JFrame {
 	public void testUserPosition()
 	{
 		CMPosition position = new CMPosition();
-		//String strLine = null;
-		//String strDelim = "\\s+";
-		//String[] strTokens;
-		//System.out.println("====== send user position");
+
 		printMessage("====== send user position\n");
-		/*
-		System.out.print("pos (x,y,z): ");
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		try {
-			strLine = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		strLine.trim();
-		strTokens = strLine.split(strDelim);
-		position.m_p.m_x = Float.parseFloat(strTokens[0]);
-		position.m_p.m_y = Float.parseFloat(strTokens[1]);
-		position.m_p.m_z = Float.parseFloat(strTokens[2]);
-		System.out.println("Pos input: ("+position.m_p.m_x+", "+position.m_p.m_y+", "+position.m_p.m_z+")");
-		*/
+
 		JTextField xField = new JTextField();
 		JTextField yField = new JTextField();
 		JTextField zField = new JTextField();
@@ -1237,26 +1244,9 @@ public class CMWinClient extends JFrame {
 		printMessage("Pos input: ("+position.m_p.m_x+", "+position.m_p.m_y+", "+position.m_p.m_z+")\n");
 		printMessage("Quat input: ("+position.m_q.m_w+", "+position.m_q.m_x+", "
 				+position.m_q.m_y+", "+position.m_q.m_z+")\n");
-		/*
-		System.out.print("quat (w,x,y,z): ");
-		try {
-			strLine = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		strLine.trim();
-		strTokens = strLine.split(strDelim);
-		position.m_q.m_w = Float.parseFloat(strTokens[0]);
-		position.m_q.m_x = Float.parseFloat(strTokens[1]);
-		position.m_q.m_y = Float.parseFloat(strTokens[2]);
-		position.m_q.m_z = Float.parseFloat(strTokens[3]);
-		System.out.println("Quat input: ("+position.m_q.m_w+", "+position.m_q.m_x+", "+position.m_q.m_y+", "+position.m_q.m_z+")");
-		*/
 		
 		m_clientStub.sendUserPosition(position);
 		
-		//System.out.println("======");
 		printMessage("======\n");
 	}
 
@@ -1264,26 +1254,9 @@ public class CMWinClient extends JFrame {
 	{
 		String strTarget = null;
 		String strMessage = null;
-		//System.out.println("====== chat");
+
 		printMessage("====== chat\n");
-		/*
-		System.out.print("target(/b, /s, /g, or /username): ");
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		try {
-			strTarget = br.readLine();
-			strTarget = strTarget.trim();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		System.out.print("message: ");
-		try {
-			strMessage = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
+
 		JTextField targetField = new JTextField();
 		JTextField messageField = new JTextField();
 		Object[] message = {
@@ -1298,7 +1271,6 @@ public class CMWinClient extends JFrame {
 			m_clientStub.chat(strTarget, strMessage);
 		}
 		
-		//System.out.println("======");
 		printMessage("======\n");
 	}
 
@@ -1310,23 +1282,12 @@ public class CMWinClient extends JFrame {
 		
 		if(myself.getState() != CMInfo.CM_SESSION_JOIN)
 		{
-			//System.out.println("You should join a session and a group!");
 			printMessage("You should join a session and a group!\n");
 			return;
 		}
 		
-		//System.out.println("====== test CMDummyEvent in current group");
 		printMessage("====== test CMDummyEvent in current group\n");
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.print("input message: ");
-		try {
-			strInput = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
+
 		strInput = JOptionPane.showInputDialog("Input Message: ");
 		if(strInput == null) return;
 		
@@ -1338,7 +1299,6 @@ public class CMWinClient extends JFrame {
 		m_clientStub.cast(due, myself.getCurrentSession(), myself.getCurrentGroup());
 		due = null;
 		
-		//System.out.println("======");
 		printMessage("======\n");
 	}
 
@@ -1553,7 +1513,7 @@ public class CMWinClient extends JFrame {
 		{
 			strTargetName = targetNameTextField.getText().trim();
 			if(strTargetName.isEmpty())
-				strTargetName = "SERVER";
+				strTargetName = m_clientStub.getDefaultServerName();
 			printMessage("Target name: "+strTargetName+"\n");
 			printMessage("Waiting timeout: "+nTimeout+" ms\n");
 
@@ -1683,7 +1643,7 @@ public class CMWinClient extends JFrame {
 		{
 			strTargetName = targetNameTextField.getText().trim();
 			if(strTargetName.isEmpty())
-				strTargetName = "SERVER";
+				strTargetName = m_clientStub.getDefaultServerName();
 			printMessage("Target name: "+strTargetName+"\n");
 
 			m_eventHandler.setStartTime(System.currentTimeMillis());
@@ -1777,16 +1737,12 @@ public class CMWinClient extends JFrame {
 		
 		if(myself.getState() != CMInfo.CM_SESSION_JOIN)
 		{
-			//System.out.println("You should join a session and a group.");
 			printMessage("You should join a session and a group.\n");
 			return;
 		}
 		
 		CMSession session = interInfo.findSession(myself.getCurrentSession());
 		Iterator<CMGroup> iter = session.getGroupList().iterator();
-		//System.out.println("---------------------------------------------------------");
-		//System.out.format("%-20s%-20s%-20s%n", "group name", "multicast addr", "multicast port");
-		//System.out.println("---------------------------------------------------------");
 		printMessage("---------------------------------------------------------\n");
 		printMessage(String.format("%-20s%-20s%-20s%n", "group name", "multicast addr", "multicast port"));
 		printMessage("---------------------------------------------------------\n");
@@ -1794,8 +1750,6 @@ public class CMWinClient extends JFrame {
 		while(iter.hasNext())
 		{
 			CMGroupInfo gInfo = iter.next();
-			//System.out.format("%-20s%-20s%-20d%n", gInfo.getGroupName(), gInfo.getGroupAddress()
-			//		, gInfo.getGroupPort());
 			printMessage(String.format("%-20s%-20s%-20d%n", gInfo.getGroupName(), gInfo.getGroupAddress()
 					, gInfo.getGroupPort()));
 		}
@@ -1808,11 +1762,8 @@ public class CMWinClient extends JFrame {
 		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
 		CMUser myself = interInfo.getMyself();
 		CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
-		//System.out.println("------ for the default server");
+
 		printMessage("------ for the default server\n");
-		//System.out.println("name("+myself.getName()+"), session("+myself.getCurrentSession()+"), group("
-		//		+myself.getCurrentGroup()+"), udp port("+myself.getUDPPort()+"), state("
-		//		+myself.getState()+").");
 		printMessage("name("+myself.getName()+"), session("+myself.getCurrentSession()+"), group("
 				+myself.getCurrentGroup()+"), udp port("+myself.getUDPPort()+"), state("
 				+myself.getState()+"), attachment download scheme("+confInfo.getAttachDownloadScheme()+").\n");
@@ -1824,11 +1775,7 @@ public class CMWinClient extends JFrame {
 			CMServer tserver = iter.next();
 			if(tserver.getNonBlockSocketChannelInfo().findChannel(0) != null)
 			{
-				//System.out.println("------ for additional server["+tserver.getServerName()+"]");
 				printMessage("------ for additional server["+tserver.getServerName()+"]\n");
-				//System.out.println("current session("+tserver.getCurrentSessionName()+
-				//		"), current group("+tserver.getCurrentGroupName()+"), state("
-				//		+tserver.getClientState()+").");
 				printMessage("current session("+tserver.getCurrentSessionName()+
 						"), current group("+tserver.getCurrentGroupName()+"), state("
 						+tserver.getClientState()+").");
@@ -1841,24 +1788,13 @@ public class CMWinClient extends JFrame {
 
 	public void testChangeGroup()
 	{
-		//BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
 		String strGroupName = null;
-		//System.out.println("====== change group");
 		printMessage("====== change group\n");
-		/*
-		try {
-			System.out.print("group name: ");
-			strGroupName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
+
 		strGroupName = JOptionPane.showInputDialog("Group Name: ");
 		if(strGroupName != null)
 			m_clientStub.changeGroup(strGroupName);
 		
-		//System.out.println("======");
 		printMessage("======\n");
 		return;
 	}
@@ -1956,7 +1892,7 @@ public class CMWinClient extends JFrame {
 			
 			strServerName = strServerField.getText();
 			if(strServerName == null || strServerName.equals(""))
-				strServerName = "SERVER"; // default server name
+				strServerName = m_clientStub.getDefaultServerName(); // default server name
 		}
 		else if(nChType == CMInfo.CM_DATAGRAM_CHANNEL)
 		{
@@ -2200,7 +2136,7 @@ public class CMWinClient extends JFrame {
 			
 			strServerName = strServerField.getText();
 			if(strServerName == null || strServerName.equals(""))
-				strServerName = "SERVER"; // default server name
+				strServerName = m_clientStub.getDefaultServerName(); // default server name
 		}
 		else if(nChType == CMInfo.CM_DATAGRAM_CHANNEL)
 		{
@@ -2403,19 +2339,6 @@ public class CMWinClient extends JFrame {
 		String strReceiver = null;
 		printMessage("====== push a file\n");
 		
-		/*
-		JTextField fnameField = new JTextField();
-		JTextField freceiverField = new JTextField();
-		Object[] message = { "File Path Name: ", fnameField, "File Receiver: ", freceiverField };
-		int option = JOptionPane.showConfirmDialog(null, message, "File Push", JOptionPane.OK_CANCEL_OPTION);
-		if(option == JOptionPane.OK_OPTION)
-		{
-			strFilePath = fnameField.getText();
-			strReceiver = freceiverField.getText();
-			CMFileTransferManager.pushFile(strFilePath, strReceiver, m_clientStub.getCMInfo());
-		}
-		*/
-		
 		strReceiver = JOptionPane.showInputDialog("Receiver Name: ");
 		if(strReceiver == null) return;
 		JFileChooser fc = new JFileChooser();
@@ -2499,34 +2422,12 @@ public class CMWinClient extends JFrame {
 		int nUserState = m_clientStub.getCMInfo().getInteractionInfo().getMyself().getState();
 		if(nUserState != CMInfo.CM_LOGIN && nUserState != CMInfo.CM_SESSION_JOIN)
 		{
-			//System.out.println("You must log in to the default server.");
 			printMessage("You must log in to the default server.\n");
 			return;
 		}
 		
-		//BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		
-		//System.out.println("====== typical/internal forwarding test");
 		printMessage("====== typical/internal forwarding test\n");
 		
-		/*
-		try {
-			System.out.print("Forwarding type (0: typical, 1: internal): ");
-			nForwardType = Integer.parseInt(br.readLine());
-			System.out.print("Forwarding rate (0 ~ 1): ");
-			fForwardRate = Float.parseFloat(br.readLine());
-			System.out.print("Simulation num: ");
-			nSimNum = Integer.parseInt(br.readLine());
-		} catch (NumberFormatException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return;
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return;
-		}
-		*/
 		String[] ftypes = {"Typical", "Internal"};
 		JComboBox<String> ftypeBox = new JComboBox<String>(ftypes);
 		JTextField frateField = new JTextField();
@@ -2563,17 +2464,16 @@ public class CMWinClient extends JFrame {
 				
 				// send the event to a server
 				if(nForwardType == 0)
-					m_clientStub.send(ue, "SERVER");
+					m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 				else if(nForwardType == 1)
 				{
 					if(ue.getStringID().equals("testForward"))
 						m_clientStub.send(ue, strUserName);
 					else
-						m_clientStub.send(ue, "SERVER");
+						m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 				}
 				else
 				{
-					//System.out.println("Invalid forwarding type: "+nForwardType);
 					printMessage("Invalid forwarding type: "+nForwardType+"\n");
 					return;
 				}
@@ -2584,7 +2484,7 @@ public class CMWinClient extends JFrame {
 		ue = new CMUserEvent();
 		ue.setStringID("EndSim");
 		ue.setEventField(CMInfo.CM_INT, "simnum", String.valueOf(nSimNum));
-		m_clientStub.send(ue, "SERVER");
+		m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 		
 		ue = null;
 		return;
@@ -2601,31 +2501,12 @@ public class CMWinClient extends JFrame {
 		int nUserState = m_clientStub.getCMInfo().getInteractionInfo().getMyself().getState();
 		if(nUserState != CMInfo.CM_LOGIN && nUserState != CMInfo.CM_SESSION_JOIN)
 		{
-			//System.out.println("You must log in to the default server.");
 			printMessage("You must log in to the default server.\n");
 			return;
 		}
 
-		//System.out.println("====== test delay of forwarding schemes (typical vs. internal");
 		printMessage("====== test delay of forwarding schemes (typical vs. internal\n");
 		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		try {
-			System.out.print("forward type(0:typical, 1:internal): ");
-			nForwardType = Integer.parseInt(br.readLine());
-			System.out.print("Send num: ");
-			nSendNum = Integer.parseInt(br.readLine());
-		} catch (NumberFormatException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return;
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return;
-		}
-		*/
 		String[] fTypes = {"Typical", "Internal"};
 		JComboBox<String> forwardTypeBox = new JComboBox<String>(fTypes);
 		JTextField sendNumField = new JTextField();
@@ -2655,14 +2536,13 @@ public class CMWinClient extends JFrame {
 
 			// send an event to a server
 			if(nForwardType == 0)
-				m_clientStub.send(ue, "SERVER");
+				m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 			else if(nForwardType == 1)
 			{
 				m_clientStub.send(ue, strUserName);
 			}
 			else
 			{
-				//System.out.println("Invalid forward type: "+nForwardType);
 				printMessage("Invalid forward type: "+nForwardType+"\n");
 				return;
 			}
@@ -2676,11 +2556,10 @@ public class CMWinClient extends JFrame {
 		ue.setEventField(CMInfo.CM_INT, "sendnum", String.valueOf(nSendNum));
 		
 		if(nForwardType == 0)
-			m_clientStub.send(ue, "SERVER");
+			m_clientStub.send(ue, m_clientStub.getDefaultServerName());
 		else
 			m_clientStub.send(ue, strUserName);
 		
-		//System.out.println("======");
 		printMessage("======\n");
 		
 		ue = null;
@@ -2689,7 +2568,6 @@ public class CMWinClient extends JFrame {
 
 	public void testDownloadNewSNSContent()
 	{
-		//System.out.println("====== request downloading of SNS content (offset 0)");
 		printMessage("====== request downloading of SNS content (offset 0)\n");
 
 		int nContentOffset = 0;
@@ -2729,24 +2607,16 @@ public class CMWinClient extends JFrame {
 	public void testRequestAttachedFileOfSNSContent()
 	{
 		printMessage("====== request an attached file of SNS content\n");
-//		int nContentID = 0;
-//		String strWriterName = null;
 		String strFileName = null;
 
-//		JTextField contentIDField = new JTextField();
-//		JTextField writerField = new JTextField();
 		JTextField fileNameField = new JTextField();
 		Object[] message = {
-//				"Content ID: ", contentIDField,
-//				"Content Writer Name: ", writerField,
 				"Attachment File Name: ", fileNameField
 		};
 		int option = JOptionPane.showConfirmDialog(null, message, "Request an attached file of SNS content", 
 				JOptionPane.OK_CANCEL_OPTION);
 		if(option != JOptionPane.OK_OPTION) return;
 
-//		nContentID = Integer.parseInt(contentIDField.getText());
-//		strWriterName = writerField.getText();
 		strFileName = fileNameField.getText();
 		
 //		m_clientStub.requestAttachedFileOfSNSContent(nContentID, strWriterName, strFileName);
@@ -2818,7 +2688,6 @@ public class CMWinClient extends JFrame {
 		JTextField replyOfField = new JTextField();
 		String[] lod = {"Everyone", "My Followers", "Bi-Friends", "Nobody"};
 		JComboBox<String> lodBox = new JComboBox<String>(lod);
-		//JTextField lodField = new JTextField();
 		Object[] message = {
 				"Input Message: ", msgField,
 				"File Attachment: ", attachedFilesBox,
@@ -2835,13 +2704,7 @@ public class CMWinClient extends JFrame {
 				nReplyOf = Integer.parseInt(strReplyOf);
 			else
 				nReplyOf = 0;
-			/*
-			String strLod = lodField.getText();
-			if(strLod != null)
-				nLevelOfDisclosure = Integer.parseInt(strLod);
-			else
-				nLevelOfDisclosure = 0;
-			*/
+
 			nLevelOfDisclosure = lodBox.getSelectedIndex();
 			System.out.println("selected lod: "+nLevelOfDisclosure);
 			
@@ -2900,7 +2763,6 @@ public class CMWinClient extends JFrame {
 
 		if(!strPasswd.equals(strRePasswd))
 		{
-			//System.err.println("Password input error");
 			printMessage("Password input error!\n");
 			return;
 		}
@@ -2939,24 +2801,11 @@ public class CMWinClient extends JFrame {
 	{
 		String strName = null;
 		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.println("====== search for a registered user");
-		try {
-			System.out.print("Input user name: ");
-			strName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
-		
 		printMessage("====== search for a registered user\n");
 		strName = JOptionPane.showInputDialog("Input User Name: ");
 		if(strName != null)
 			m_clientStub.findRegisteredUser(strName);
 
-		//System.out.println("======");
 		printMessage("======\n");
 		
 		return;
@@ -2965,20 +2814,6 @@ public class CMWinClient extends JFrame {
 	public void testAddNewFriend()
 	{
 		String strFriendName = null;
-		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.println("====== add a new friend");
-		System.out.println("A friend must be a registered user in CM");
-		try {
-			System.out.print("Input a friend name: ");
-			strFriendName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return;
-		}
-		*/
 		
 		printMessage("====== add a new friend\n");
 		printMessage("A friend must be a registered user in CM\n");
@@ -2993,19 +2828,6 @@ public class CMWinClient extends JFrame {
 	{
 		String strFriendName = null;
 		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.println("====== remove a friend");
-		try {
-			System.out.print("Input a friend name: ");
-			strFriendName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return;
-		}
-		*/
-		
 		printMessage("====== remove a friend\n");
 		strFriendName = JOptionPane.showInputDialog("Input a friend name: ");
 		if(strFriendName != null)
@@ -3016,7 +2838,6 @@ public class CMWinClient extends JFrame {
 	
 	public void testRequestFriendsList()
 	{
-		//System.out.println("====== request current friends list");
 		printMessage("====== request current friends list\n");
 		m_clientStub.requestFriendsList();
 		return;
@@ -3024,7 +2845,6 @@ public class CMWinClient extends JFrame {
 
 	public void testRequestFriendRequestersList()
 	{
-		//System.out.println("====== request friend requesters list");
 		printMessage("====== request friend requesters list\n");
 		m_clientStub.requestFriendRequestersList();
 		return;
@@ -3032,7 +2852,6 @@ public class CMWinClient extends JFrame {
 
 	public void testRequestBiFriendsList()
 	{
-		//System.out.println("====== request bi-directional friends list");
 		printMessage("====== request bi-directional friends list\n");
 		m_clientStub.requestBiFriendsList();
 		return;
@@ -3040,27 +2859,14 @@ public class CMWinClient extends JFrame {
 
 	public void testRequestServerInfo()
 	{
-		//System.out.println("====== request additional server information");
 		printMessage("====== request additional server information\n");
 		m_clientStub.requestServerInfo();
 	}
 
 	public void testConnectToServer()
 	{
-		//System.out.println("====== connect to a designated server");
 		printMessage("====== connect to a designated server\n");
 		String strServerName = null;
-		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.print("Input a server name: ");
-		try {
-			strServerName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
 		
 		strServerName = JOptionPane.showInputDialog("Input a server name: ");
 		if(strServerName != null)
@@ -3071,21 +2877,9 @@ public class CMWinClient extends JFrame {
 
 	public void testDisconnectFromServer()
 	{
-		//System.out.println("===== disconnect from a designated server");
 		printMessage("===== disconnect from a designated server\n");
 		
 		String strServerName = null;
-		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.print("Input a server name: ");
-		try {
-			strServerName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
 		
 		strServerName = JOptionPane.showInputDialog("Input a server name: ");
 		if(strServerName != null)
@@ -3104,7 +2898,7 @@ public class CMWinClient extends JFrame {
 		strServerName = JOptionPane.showInputDialog("Server Name: ");
 		if(strServerName == null) return;
 
-		if( strServerName.equals("SERVER") )	// login to a default server
+		if( strServerName.equals(m_clientStub.getDefaultServerName()) )	// login to a default server
 		{
 			JTextField userNameField = new JTextField();
 			JPasswordField passwordField = new JPasswordField();
@@ -3129,7 +2923,6 @@ public class CMWinClient extends JFrame {
 			m_clientStub.loginCM(strServerName, user, password);
 		}
 		
-		//System.out.println("======");
 		printMessage("======\n");
 		
 		return;
@@ -3139,49 +2932,23 @@ public class CMWinClient extends JFrame {
 	{
 		String strServerName = null;
 		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.println("====== log out from a designated server");
-		System.out.print("Input server name: ");
-		try {
-			strServerName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
-		
 		printMessage("====== log out from a designated server\n");
 		strServerName = JOptionPane.showInputDialog("Server Name: ");
 		if(strServerName != null)
 			m_clientStub.logoutCM(strServerName);
 		
-		//System.out.println("======");
 		printMessage("======\n");
 	}
 
 	public void testRequestSessionInfoOfServer()
 	{
 		String strServerName = null;
-		//System.out.println("====== request session informatino of a designated server");
 		printMessage("====== request session informatino of a designated server\n");
-		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.print("Input server name: ");
-		try {
-			strServerName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
 		
 		strServerName = JOptionPane.showInputDialog("Server Name: ");
 		if(strServerName != null)
 			m_clientStub.requestSessionInfo(strServerName);
 		
-		//System.out.println("======");
 		printMessage("======\n");
 		
 		return;
@@ -3191,20 +2958,6 @@ public class CMWinClient extends JFrame {
 	{
 		String strServerName = null;
 		String strSessionName = null;
-		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.println("====== join a session of a designated server");
-		try {
-			System.out.print("Input server name: ");
-			strServerName = br.readLine();
-			System.out.print("Input session name: ");
-			strSessionName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
 		
 		printMessage("====== join a session of a designated server\n");
 		JTextField serverField = new JTextField();
@@ -3220,7 +2973,6 @@ public class CMWinClient extends JFrame {
 			m_clientStub.joinSession(strServerName, strSessionName);
 		}
 		
-		//System.out.println("======");
 		printMessage("======\n");
 		
 		return;
@@ -3230,24 +2982,11 @@ public class CMWinClient extends JFrame {
 	{
 		String strServerName = null;
 		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.println("====== leave a session of a designated server");
-		System.out.print("Input server name: ");
-		try {
-			strServerName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
-		
 		printMessage("====== leave a session of a designated server\n");
 		strServerName = JOptionPane.showInputDialog("Input a server name: ");
 		if(strServerName != null)
 			m_clientStub.leaveSession(strServerName);
 		
-		//System.out.println("======");
 		printMessage("======\n");
 		
 		return;
@@ -3260,23 +2999,11 @@ public class CMWinClient extends JFrame {
 		
 		String strServerName = null;
 		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.println("====== print group information a designated server");
-		System.out.print("Input server name: ");
-		try {
-			strServerName = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
-		
 		printMessage("====== print group information a designated server\n");
 		strServerName = JOptionPane.showInputDialog("Input a server name: ");
 		if(strServerName == null) return;
 		
-		if(strServerName.equals("SERVER"))
+		if(strServerName.equals(m_clientStub.getDefaultServerName()))
 		{
 			testPrintGroupInfo();
 			return;
@@ -3285,16 +3012,12 @@ public class CMWinClient extends JFrame {
 		CMServer server = interInfo.findAddServer(strServerName);
 		if(server == null)
 		{
-			//System.out.println("server("+strServerName+") not found in the add-server list!");
 			printMessage("server("+strServerName+") not found in the add-server list!\n");
 			return;
 		}
 		
 		CMSession session = server.findSession(myself.getCurrentSession());
 		Iterator<CMGroup> iter = session.getGroupList().iterator();
-		//System.out.println("---------------------------------------------------------");
-		//System.out.format("%-20s%-20s%-20s%n", "group name", "multicast addr", "multicast port");
-		//System.out.println("---------------------------------------------------------");
 		printMessage("---------------------------------------------------------\n");
 		printMessage(String.format("%-20s%-20s%-20s%n", "group name", "multicast addr", "multicast port"));
 		printMessage("---------------------------------------------------------\n");
@@ -3302,9 +3025,6 @@ public class CMWinClient extends JFrame {
 		while(iter.hasNext())
 		{
 			CMGroupInfo gInfo = iter.next();
-			//System.out.format("%-20s%-20s%-20d%n", gInfo.getGroupName(), gInfo.getGroupAddress()
-			//		, gInfo.getGroupPort());
-			
 			printMessage(String.format("%-20s%-20s%-20d%n", gInfo.getGroupName(), gInfo.getGroupAddress()
 					, gInfo.getGroupPort()));
 		}
@@ -3349,7 +3069,6 @@ public class CMWinClient extends JFrame {
 		strFiles = strFileList.split("\\s+");
 		if(strFiles.length != nFileNum)
 		{
-			//System.out.println("The number of files incorrect!");
 			printMessage("The number of files incorrect!\n");
 			return;
 		}
@@ -3380,19 +3099,10 @@ public class CMWinClient extends JFrame {
 		long lSplitRemainder = -1;
 		int nSplitNum = -1;
 		RandomAccessFile raf = null;
-		//BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		//System.out.println("====== split a file");
 		
 		printMessage("====== split a file\n");
 		
 		try {
-			/*
-			System.out.print("Input source file name: ");
-			strSrcFile = br.readLine();
-			System.out.print("Input the number of split files: ");
-			nSplitNum = Integer.parseInt(br.readLine());
-			*/
-			
 			JTextField fileField = new JTextField();
 			JTextField splitNumField = new JTextField();
 			Object[] message = {
@@ -3453,30 +3163,6 @@ public class CMWinClient extends JFrame {
 		int nFileNum = -1;
 		long lMergeFileSize = -1;
 		
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		
-		System.out.println("====== merge split files");
-		try {
-			System.out.print("Number of split files: ");
-			nFileNum = Integer.parseInt(br.readLine());
-			//System.out.print("Input split files in order: ");
-			//strFileList = br.readLine();
-			System.out.print("Input prefix of split files: ");
-			strFilePrefix = br.readLine();
-			System.out.print("Input merged file name: ");
-			strMergeFileName = br.readLine();
-		} catch (NumberFormatException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return;
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return;
-		}
-		*/
-		
 		printMessage("====== merge split files\n");
 		
 		JTextField splitNumField = new JTextField();
@@ -3506,7 +3192,6 @@ public class CMWinClient extends JFrame {
 		}
 		
 		lMergeFileSize = CMFileTransferManager.mergeFiles(strFiles, nFileNum, strMergeFileName);
-		//System.out.println("Size of merged file("+strMergeFileName+"): "+lMergeFileSize+" Bytes.");
 		printMessage("Size of merged file("+strMergeFileName+"): "+lMergeFileSize+" Bytes.\n");
 		return;
 	}
@@ -3517,16 +3202,12 @@ public class CMWinClient extends JFrame {
 		String strFile = null;
 		long lFileSize = 0;
 		CMFileEvent fe = null;
-		//BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		
-		//System.out.println("====== split a file, distribute to multiple servers, and merge");
 		printMessage("====== split a file, distribute to multiple servers, and merge\n");
 		
 		// check if the client logs in to all available servers
 		int nClientState = interInfo.getMyself().getState();
 		if(nClientState == CMInfo.CM_INIT || nClientState == CMInfo.CM_CONNECT)
 		{
-			//System.out.println("You must log in the default server!");
 			printMessage("You must log in the default server!\n");
 			return;
 		}
@@ -3537,8 +3218,6 @@ public class CMWinClient extends JFrame {
 			nClientState = tserver.getClientState();
 			if(nClientState == CMInfo.CM_INIT || nClientState == CMInfo.CM_CONNECT)
 			{
-				//System.out.println("You must log in the additional server("+tserver.getServerName()
-				//		+")!");
 				printMessage("You must log in the additional server("+tserver.getServerName()
 						+")!\n");
 				return;
@@ -3546,17 +3225,6 @@ public class CMWinClient extends JFrame {
 		}
 
 		// input file name
-		/*
-		try {
-			System.out.println("A source file must exists in the file path configured in CM");
-			System.out.print("Input a source file name: ");
-			strFile = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
-		//printMessage("A source file must exists in the file path configured in CM\n");
 		strFile = JOptionPane.showInputDialog("Source file path");
 		if(strFile == null) return;
 
@@ -3564,7 +3232,6 @@ public class CMWinClient extends JFrame {
 		//strFile = fileInfo.getFilePath()+"/"+strFile;
 		File srcFile = new File(strFile);
 		lFileSize = srcFile.length();
-		//System.out.println("Source file ("+strFile+"): "+lFileSize+" Bytes.");
 		printMessage("Source file ("+strFile+"): "+lFileSize+" Bytes.\n");
 
 		// get current number of servers ( default server + add servers )
@@ -3648,8 +3315,9 @@ public class CMWinClient extends JFrame {
 			CMFileTransferManager.splitFile(raf, lOffset, lFileSize-lPieceSize*i, strPieceName);
 		}
 		// send the last piece to the default server
-		m_clientStub.send(fe, "SERVER");
-		CMFileTransferManager.pushFile(strPieceName, "SERVER", m_clientStub.getCMInfo());
+		m_clientStub.send(fe, m_clientStub.getDefaultServerName());
+		CMFileTransferManager.pushFile(strPieceName, m_clientStub.getDefaultServerName(), 
+				m_clientStub.getCMInfo());
 		
 		try {
 			raf.close();
@@ -3695,18 +3363,6 @@ public class CMWinClient extends JFrame {
 		}
 
 		// receive a user input message
-		/*
-		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
-		System.out.print("Input message: ");
-		String strMessage = null;
-		try {
-			strMessage = br.readLine();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		*/
-		
 		String strMessage = JOptionPane.showInputDialog("Chat Message");
 		if(strMessage == null) return;
 		
@@ -3789,7 +3445,7 @@ public class CMWinClient extends JFrame {
 
 		strServerName = serverField.getText();
 		if(strServerName == null || strServerName.equals(""))
-			strServerName = "SERVER"; // default server name
+			strServerName = m_clientStub.getDefaultServerName(); // default server name
 
 		if(socketRadioButton.isSelected())
 		{
@@ -3837,7 +3493,7 @@ public class CMWinClient extends JFrame {
 		if(strTarget == null) 
 			return;
 		else if(strTarget.equals(""))
-			strTarget = "SERVER";
+			strTarget = m_clientStub.getDefaultServerName();
 
 		fSpeed = m_clientStub.measureInputThroughput(strTarget);
 		if(fSpeed == -1)
@@ -3856,7 +3512,7 @@ public class CMWinClient extends JFrame {
 		if(strTarget == null) 
 			return;
 		else if(strTarget.equals(""))
-			strTarget = "SERVER";
+			strTarget = m_clientStub.getDefaultServerName();
 
 		fSpeed = m_clientStub.measureOutputThroughput(strTarget);
 		if(fSpeed == -1)
@@ -3925,46 +3581,196 @@ public class CMWinClient extends JFrame {
 		
 		return;
 	}
+	
+	public void testMqttConnect()
+	{
+		printMessage("========== MQTT connect\n");
+		JTextField willTopicTextField = new JTextField();
+		JTextField willMessageTextField = new JTextField();
+		JCheckBox willRetainBox = new JCheckBox();
+		String[] qosArray = {"0", "1", "2"};
+		JComboBox<String> willQoSComboBox = new JComboBox<String>(qosArray);
+		JCheckBox willFlagBox = new JCheckBox();
+		JCheckBox cleanSessionBox = new JCheckBox();
+		Object[] msg = {
+				"will Topic", willTopicTextField,
+				"will message", willMessageTextField,
+				"will retain", willRetainBox,
+				"will QoS", willQoSComboBox,
+				"will flag", willFlagBox,
+				"clean session", cleanSessionBox
+		};
+		int nRet = JOptionPane.showConfirmDialog(null, msg, "MQTT connect", 
+				JOptionPane.OK_CANCEL_OPTION);
+		if(nRet != JOptionPane.OK_OPTION) return;
+
+		String strWillTopic = willTopicTextField.getText().trim();
+		String strWillMessage = willMessageTextField.getText().trim();
+		boolean bWillRetain = willRetainBox.isSelected();
+		byte willQoS = (byte) willQoSComboBox.getSelectedIndex();
+		boolean bWillFlag = willFlagBox.isSelected();
+		boolean bCleanSession = cleanSessionBox.isSelected();
+		
+		CMMqttManager mqttManager = (CMMqttManager) m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			printStyledMessage("CMMqttManager is null!\n", "bold");
+			return;
+		}
+		mqttManager.connect(strWillTopic, strWillMessage, bWillRetain, willQoS, bWillFlag, 
+				bCleanSession);
+		
+	}
+	
+	public void testMqttPublish()
+	{
+		printMessage("========== MQTT publish\n");
+		JTextField topicTextField = new JTextField();
+		JTextField messageTextField = new JTextField();
+		String[] qosArray = {"0", "1", "2"};
+		JComboBox<String> qosComboBox = new JComboBox<String>(qosArray);
+		JCheckBox dupFlagBox = new JCheckBox();
+		JCheckBox retainFlagBox = new JCheckBox();
+		Object[] msg = {
+				"topic", topicTextField,
+				"message", messageTextField,
+				"QoS", qosComboBox,
+				"dup flag", dupFlagBox,
+				"retain flag", retainFlagBox
+		};
+		int nRet = JOptionPane.showConfirmDialog(null, msg, "MQTT publish", 
+				JOptionPane.OK_CANCEL_OPTION);
+		if(nRet != JOptionPane.OK_OPTION) return;
+
+		String strTopic = topicTextField.getText().trim();
+		String strMessage = messageTextField.getText().trim();
+		byte qos = (byte) qosComboBox.getSelectedIndex();
+		boolean bDupFlag = dupFlagBox.isSelected();
+		boolean bRetainFlag = retainFlagBox.isSelected();
+		
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			printStyledMessage("CMMqttManager is null!\n", "bold");
+			return;
+		}
+		//mqttManager.publish(1, "/CM/test", "This is a test message.", (byte)1);
+		mqttManager.publish(strTopic, strMessage, qos, bDupFlag, bRetainFlag);
+	}
+	
+	public void testMqttSubscribe()
+	{
+		printMessage("========== MQTT subscribe\n");
+		JTextField topicFilterTextField = new JTextField();
+		String[] qosArray = {"0", "1", "2"};
+		JComboBox<String> qosComboBox = new JComboBox<String>(qosArray);
+		Object[] msg = {
+				"topic filter", topicFilterTextField,
+				"QoS", qosComboBox
+		};
+		int nRet = JOptionPane.showConfirmDialog(null, msg, "MQTT subscribe", 
+				JOptionPane.OK_CANCEL_OPTION);
+		if(nRet != JOptionPane.OK_OPTION) return;
+
+		String strTopicFilter = topicFilterTextField.getText().trim();
+		byte qos = (byte) qosComboBox.getSelectedIndex();
+
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			printStyledMessage("CMMqttManager is null!\n", "bold");
+			return;
+		}
+		mqttManager.subscribe(strTopicFilter, qos);
+	}
+	
+	public void testPrintMqttSessionInfo()
+	{
+		printMessage("========== print MQTT session info\n");
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			printStyledMessage("CMMqttManager is null!\n", "bold");
+			return;
+		}
+		printMessage(mqttManager.getMySessionInfo()+"\n");
+	}
+	
+	public void testMqttUnsubscribe()
+	{
+		printMessage("========== MQTT unsubscribe\n");
+		String strTopic = null;
+		strTopic = JOptionPane.showInputDialog("Topic to unsubscribe").trim();
+		if(strTopic == null || strTopic.equals("")) 
+			return;
+
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			printStyledMessage("CMMqttManager is null!\n", "bold");
+			return;
+		}
+		mqttManager.unsubscribe(strTopic);
+	}
+	
+	public void testMqttDisconnect()
+	{
+		printMessage("========== MQTT disconnect\n");
+		CMMqttManager mqttManager = (CMMqttManager)m_clientStub.findServiceManager(CMInfo.CM_MQTT_MANAGER);
+		if(mqttManager == null)
+		{
+			printStyledMessage("CMMqttManager is null!\n", "bold");
+			return;
+		}
+		mqttManager.disconnect();
+	}
+	
+	public void testSendEventWithWrongByteNum()
+	{
+		printMessage("========== send a CMDummyEvent with wrong # bytes to a server\n");
+		
+		CMCommInfo commInfo = m_clientStub.getCMInfo().getCommInfo();
+		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
+		CMBlockingEventQueue sendQueue = commInfo.getSendBlockingEventQueue();
+		
+		String strServer = JOptionPane.showInputDialog("server name: ").trim();
+		SelectableChannel ch = null;
+		if(strServer.contentEquals(m_clientStub.getDefaultServerName()))
+		{
+			CMServer defServer = interInfo.getDefaultServerInfo();
+			ch = defServer.getNonBlockSocketChannelInfo().findChannel(0);
+		}
+		else {
+			CMServer addServer = interInfo.findAddServer(strServer);
+			if(addServer == null)
+			{
+				printStyledMessage("No server["+strServer+"] found!\n", "bold");
+				return;
+			}
+			ch = addServer.getNonBlockSocketChannelInfo().findChannel(0);
+		}
+		
+		CMDummyEvent due = new CMDummyEvent();
+		ByteBuffer buf = CMEventManager.marshallEvent(due);
+		buf.clear();
+		buf.putInt(-1).clear();
+		CMMessage msg = new CMMessage(buf, ch);
+		sendQueue.push(msg);
+	}
+	
+	public void testSendEventWithWrongEventType()
+	{
+		printMessage("========== send a CMDummyEvent with wrong event type to a server\n");
+		
+		String strServer = JOptionPane.showInputDialog("server name: ").trim();
+		
+		CMDummyEvent due = new CMDummyEvent();
+		due.setType(-1);	// set wrong event type
+		m_clientStub.send(due, strServer);
+	}
 		
 	private void requestAttachedFile(String strFileName)
-	{
-		/*
-		int nContentID = -1;
-		String strWriterName = null;
-		// A downloaded file name may be a thumbnail file name instead of original name
-		int index = strFileName.lastIndexOf(".");
-		String strThumbnail = strFileName.substring(0, index) + "-thumbnail"
-				+ strFileName.substring(index, strFileName.length());
-		// search for content ID and writer name
-		CMSNSInfo snsInfo = m_clientStub.getCMInfo().getSNSInfo();
-		CMSNSContentList contentList = snsInfo.getSNSContentList();
-		Vector<CMSNSContent> contentVector = contentList.getContentList();
-		Iterator<CMSNSContent> iter = contentVector.iterator();
-		boolean bFound = false;
-		while(iter.hasNext() && !bFound)
-		{
-			CMSNSContent content = iter.next();
-			if(content.containsFileName(strFileName) || content.containsFileName(strThumbnail))
-			{
-				nContentID = content.getContentID();
-				strWriterName = content.getWriterName();
-				bFound = true;
-			}
-		}		
-		
-		if(bFound)
-		{
-			// set a flag of the request
-			m_eventHandler.setReqAttachedFile(true);
-			// send request for the attachment download
-			m_clientStub.requestAttachedFileOfSNSContent(nContentID, strWriterName, strFileName);			
-		}
-		else
-		{
-			printMessage(strFileName+" not found in the downloaded content list!\n");
-		}
-		*/
-		
+	{		
 		boolean bRet = m_clientStub.requestAttachedFileOfSNSContent(strFileName);
 		if(bRet)
 			m_eventHandler.setReqAttachedFile(true);
@@ -4357,7 +4163,7 @@ public class CMWinClient extends JFrame {
 		// TODO Auto-generated method stub
 		CMWinClient client = new CMWinClient();
 		CMClientStub cmStub = client.getClientStub();
-		cmStub.setEventHandler(client.getClientEventHandler());
+		cmStub.setAppEventHandler(client.getClientEventHandler());
 	}
 
 }
