@@ -1,5 +1,8 @@
 import java.util.ArrayList;
 import java.util.Iterator;
+
+import javax.swing.JOptionPane;
+
 import java.io.*;
 
 import kr.ac.konkuk.ccslab.cm.entity.CMServerInfo;
@@ -519,34 +522,76 @@ public class CMClientEventHandler implements CMAppEventHandler {
 	private void processFileEvent(CMEvent cme)
 	{
 		CMFileEvent fe = (CMFileEvent) cme;
+		int nOption = -1;
 		switch(fe.getID())
 		{
-		case CMFileEvent.REQUEST_FILE_TRANSFER:
-		case CMFileEvent.REQUEST_FILE_TRANSFER_CHAN:
-			System.out.println("["+fe.getReceiverName()+"] requests file("+fe.getFileName()+").");
+		case CMFileEvent.REQUEST_PERMIT_PULL_FILE:
+			String strReq = "["+fe.getFileReceiver()+"] requests file("+fe.getFileName()+
+			").\n";
+			System.out.print(strReq);
+			nOption = JOptionPane.showConfirmDialog(null, strReq, "Request a file", 
+					JOptionPane.YES_NO_OPTION);
+			if(nOption == JOptionPane.YES_OPTION)
+			{
+				m_clientStub.replyEvent(fe, 1);
+			}
+			else
+			{
+				m_clientStub.replyEvent(fe, 0);
+			}
 			break;
-		case CMFileEvent.REPLY_FILE_TRANSFER:
-		case CMFileEvent.REPLY_FILE_TRANSFER_CHAN:
+		case CMFileEvent.REPLY_PERMIT_PULL_FILE:
+			if(fe.getReturnCode() == -1)
+			{
+				System.err.print("["+fe.getFileName()+"] does not exist in the owner!\n");
+			}
+			else if(fe.getReturnCode() == 0)
+			{
+				System.err.print("["+fe.getFileSender()+"] rejects to send file("
+						+fe.getFileName()+").\n");
+			}
+			break;
+		case CMFileEvent.REQUEST_PERMIT_PUSH_FILE:
+			StringBuffer strReqBuf = new StringBuffer(); 
+			strReqBuf.append("["+fe.getFileSender()+"] wants to send a file.\n");
+			strReqBuf.append("file path: "+fe.getFilePath()+"\n");
+			strReqBuf.append("file size: "+fe.getFileSize()+"\n");
+			System.out.print(strReqBuf.toString());
+			nOption = JOptionPane.showConfirmDialog(null, strReqBuf.toString(), 
+					"Push File", JOptionPane.YES_NO_OPTION);
+			if(nOption == JOptionPane.YES_OPTION)
+			{
+				m_clientStub.replyEvent(fe, 1);
+			}
+			else
+			{
+				m_clientStub.replyEvent(fe, 1);
+			}				
+			break;
+		case CMFileEvent.REPLY_PERMIT_PUSH_FILE:
 			if(fe.getReturnCode() == 0)
-				System.out.println("["+fe.getFileName()+"] does not exist in the owner!");
+			{
+				System.err.print("["+fe.getFileReceiver()+"] rejected the push-file request!\n");
+				System.err.print("file path("+fe.getFilePath()+"), size("+fe.getFileSize()+").\n");
+			}
 			break;
 		case CMFileEvent.START_FILE_TRANSFER:
 		case CMFileEvent.START_FILE_TRANSFER_CHAN:
-			System.out.println("["+fe.getSenderName()+"] is about to send file("+fe.getFileName()+").");
+			System.out.println("["+fe.getFileSender()+"] is about to send file("+fe.getFileName()+").");
 			break;
 		case CMFileEvent.END_FILE_TRANSFER:
 		case CMFileEvent.END_FILE_TRANSFER_CHAN:
-			System.out.println("["+fe.getSenderName()+"] completes to send file("+fe.getFileName()+", "
+			System.out.println("["+fe.getFileSender()+"] completes to send file("+fe.getFileName()+", "
 					+fe.getFileSize()+" Bytes).");
 			if(m_bDistFileProc)
 				processFile(fe.getFileName());
 			break;
 		case CMFileEvent.CANCEL_FILE_SEND:
 		case CMFileEvent.CANCEL_FILE_SEND_CHAN:
-			System.out.println("["+fe.getSenderName()+"] cancelled the file transfer.");
+			System.out.println("["+fe.getFileSender()+"] cancelled the file transfer.");
 			break;
 		case CMFileEvent.CANCEL_FILE_RECV_CHAN:
-			System.out.println("["+fe.getReceiverName()+"] cancelled the file request.");
+			System.out.println("["+fe.getFileReceiver()+"] cancelled the file request.");
 			break;
 		}
 		return;

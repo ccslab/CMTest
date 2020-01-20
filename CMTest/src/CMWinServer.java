@@ -2,13 +2,13 @@ import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectableChannel;
-import java.nio.channels.SocketChannel;
-import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.awt.*;
 import java.awt.event.*;
+import java.util.Hashtable;
 import java.util.Iterator;
+import java.util.Set;
 import java.util.Vector;
 
 import javax.swing.*;
@@ -19,8 +19,11 @@ import javax.swing.text.StyleContext;
 import javax.swing.text.StyledDocument;
 
 import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
+import kr.ac.konkuk.ccslab.cm.entity.CMList;
 import kr.ac.konkuk.ccslab.cm.entity.CMMember;
 import kr.ac.konkuk.ccslab.cm.entity.CMMessage;
+import kr.ac.konkuk.ccslab.cm.entity.CMRecvFileInfo;
+import kr.ac.konkuk.ccslab.cm.entity.CMSendFileInfo;
 import kr.ac.konkuk.ccslab.cm.entity.CMServer;
 import kr.ac.konkuk.ccslab.cm.entity.CMSession;
 import kr.ac.konkuk.ccslab.cm.entity.CMUser;
@@ -83,6 +86,7 @@ public class CMWinServer extends JFrame {
 		
 		m_startStopButton = new JButton("Start Server CM");
 		m_startStopButton.addActionListener(cmActionListener);
+		m_startStopButton.setEnabled(false);
 		//add(startStopButton, BorderLayout.NORTH);
 		topButtonPanel.add(m_startStopButton);
 		
@@ -207,7 +211,10 @@ public class CMWinServer extends JFrame {
 		JMenuItem cancelSendMenuItem = new JMenuItem("cancel sending file");
 		cancelSendMenuItem.addActionListener(menuListener);
 		fileTransferSubMenu.add(cancelSendMenuItem);
-	
+		JMenuItem printSendRecvFileInfoMenuItem = new JMenuItem("print sending/receiving file info");
+		printSendRecvFileInfoMenuItem.addActionListener(menuListener);
+		fileTransferSubMenu.add(printSendRecvFileInfoMenuItem);	
+		
 		serviceMenu.add(fileTransferSubMenu);
 		
 		JMenu snsSubMenu = new JMenu("Social Network Service");
@@ -320,6 +327,9 @@ public class CMWinServer extends JFrame {
 		case 24:	// test cancel sending a file
 			cancelSendFile();
 			break;
+		case 25:	// print sending/receiving file info
+			printSendRecvFileInfo();
+			break;
 		case 30: // request registration to the default server
 			requestServerReg();
 			break;
@@ -389,6 +399,7 @@ public class CMWinServer extends JFrame {
 		printMessage("---------------------------------- File Transfer\n");
 		printMessage("20: set file path, 21: request file, 22: push file\n");
 		printMessage("23: cancel receiving file, 24: cancel sending file\n");
+		printMessage("25: print sending/receiving file info\n");
 		printMessage("---------------------------------- Multi-server\n");
 		printMessage("30: register to default server, 31: deregister from default server\n");
 		printMessage("32: connect to default server, 33: disconnect from default server\n");
@@ -467,6 +478,7 @@ public class CMWinServer extends JFrame {
 			printStyledMessage("Server CM starts.\n", "bold");
 			printMessage("Type \"0\" for menu.\n");					
 			// change button to "stop CM"
+			m_startStopButton.setEnabled(true);
 			m_startStopButton.setText("Stop Server CM");
 			updateTitle();					
 		}
@@ -627,7 +639,7 @@ public class CMWinServer extends JFrame {
 		if(strSender.isEmpty())
 			strSender = null;
 		
-		bReturn = m_serverStub.cancelRequestFile(strSender);
+		bReturn = m_serverStub.cancelPullFile(strSender);
 		
 		if(bReturn)
 		{
@@ -659,6 +671,29 @@ public class CMWinServer extends JFrame {
 			printMessage("Request failed to cancel sending a file to ["+strReceiver+"]!");
 		
 		return;
+	}
+
+	public void printSendRecvFileInfo()
+	{
+		CMFileTransferInfo fInfo = m_serverStub.getCMInfo().getFileTransferInfo();
+		Hashtable<String, CMList<CMSendFileInfo>> sendHashtable = fInfo.getSendFileHashtable();
+		Hashtable<String, CMList<CMRecvFileInfo>> recvHashtable = fInfo.getRecvFileHashtable();
+		Set<String> sendKeySet = sendHashtable.keySet();
+		Set<String> recvKeySet = recvHashtable.keySet();
+		
+		printMessage("==== sending file info\n");
+		for(String receiver : sendKeySet)
+		{
+			CMList<CMSendFileInfo> sendList = sendHashtable.get(receiver);
+			printMessage(sendList+"\n");
+		}
+
+		printMessage("==== receiving file info\n");
+		for(String sender : recvKeySet)
+		{
+			CMList<CMRecvFileInfo> recvList = recvHashtable.get(sender);
+			printMessage(recvList+"\n");
+		}
 	}
 
 	public void requestServerReg()
@@ -1035,20 +1070,13 @@ public class CMWinServer extends JFrame {
 	public void addChannel()
 	{
 		int nChType = -1;
-		int nChKey = -1; // the channel key for the socket channel
-		String strServerName = null;
 		String strChAddress = null; // the channel key for the multicast address is the (address, port) pair
 		int nChPort = -1; // the channel key for the datagram socket channel, or the multicast port number
 		String strSessionName = null;
 		String strGroupName = null;
-		CMConfigurationInfo confInfo = m_serverStub.getCMInfo().getConfigurationInfo();
-		CMInteractionInfo interInfo = m_serverStub.getCMInfo().getInteractionInfo();
 		boolean result = false;
 		boolean isBlock = false;
-		SocketChannel sc = null;
 		DatagramChannel dc = null;
-		boolean isSyncCall = false;
-		long lDelay = -1;
 				
 		printMessage("====== add additional channel\n");
 		
@@ -1279,18 +1307,12 @@ public class CMWinServer extends JFrame {
 	public void removeChannel()
 	{
 		int nChType = -1;
-		int nChKey = -1;
 		int nChPort = -1;
 		String strChAddress = null;
-		String strServerName = null;
 		String strSessionName = null;
 		String strGroupName = null;
-		CMConfigurationInfo confInfo = m_serverStub.getCMInfo().getConfigurationInfo();
-		CMInteractionInfo interInfo = m_serverStub.getCMInfo().getInteractionInfo();
 		boolean result = false;
 		boolean isBlock = false;
-		boolean isSyncCall = false;
-		long lDelay = 0;
 		
 		printMessage("====== remove additional channel\n");
 				
@@ -1872,6 +1894,9 @@ public class CMWinServer extends JFrame {
 				break;
 			case "cancel sending file":
 				cancelSendFile();
+				break;
+			case "print sending/receiving file info":
+				printSendRecvFileInfo();
 				break;
 			case "set attachment download scheme":
 				setAttachDownloadScheme();

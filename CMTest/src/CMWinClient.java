@@ -21,8 +21,12 @@ import javax.swing.text.*;
 
 import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
 import kr.ac.konkuk.ccslab.cm.entity.CMGroupInfo;
+import kr.ac.konkuk.ccslab.cm.entity.CMList;
+import kr.ac.konkuk.ccslab.cm.entity.CMMember;
 import kr.ac.konkuk.ccslab.cm.entity.CMMessage;
 import kr.ac.konkuk.ccslab.cm.entity.CMPosition;
+import kr.ac.konkuk.ccslab.cm.entity.CMRecvFileInfo;
+import kr.ac.konkuk.ccslab.cm.entity.CMSendFileInfo;
 import kr.ac.konkuk.ccslab.cm.entity.CMServer;
 import kr.ac.konkuk.ccslab.cm.entity.CMSession;
 import kr.ac.konkuk.ccslab.cm.entity.CMSessionInfo;
@@ -36,6 +40,7 @@ import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
 import kr.ac.konkuk.ccslab.cm.info.CMCommInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMFileTransferInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
 import kr.ac.konkuk.ccslab.cm.manager.CMConfigurator;
@@ -105,11 +110,13 @@ public class CMWinClient extends JFrame {
 		m_startStopButton = new JButton("Start Client CM");
 		//m_startStopButton.setBackground(Color.LIGHT_GRAY);	// not work on Mac
 		m_startStopButton.addActionListener(cmActionListener);
+		m_startStopButton.setEnabled(false);
 		//add(startStopButton, BorderLayout.NORTH);
 		topButtonPanel.add(m_startStopButton);
 		
 		m_loginLogoutButton = new JButton("Login");
 		m_loginLogoutButton.addActionListener(cmActionListener);
+		m_loginLogoutButton.setEnabled(false);
 		topButtonPanel.add(m_loginLogoutButton);
 		
 		/*
@@ -286,6 +293,9 @@ public class CMWinClient extends JFrame {
 		JMenuItem changeGroupDefaultMenuItem = new JMenuItem("change group of default server");
 		changeGroupDefaultMenuItem.addActionListener(menuListener);
 		sessionSubMenu.add(changeGroupDefaultMenuItem);
+		JMenuItem printGroupMembersMenuItem = new JMenuItem("print group members");
+		printGroupMembersMenuItem.addActionListener(menuListener);
+		sessionSubMenu.add(printGroupMembersMenuItem);
 		JMenuItem reqSessionInfoDesigMenuItem = new JMenuItem("request session information from designated server");
 		reqSessionInfoDesigMenuItem.addActionListener(menuListener);
 		sessionSubMenu.add(reqSessionInfoDesigMenuItem);
@@ -397,6 +407,9 @@ public class CMWinClient extends JFrame {
 		JMenuItem cancelSendMenuItem = new JMenuItem("cancel sending file");
 		cancelSendMenuItem.addActionListener(menuListener);
 		fileTransferSubMenu.add(cancelSendMenuItem);
+		JMenuItem printSendRecvFileInfoMenuItem = new JMenuItem("print sending/receiving file info");
+		printSendRecvFileInfoMenuItem.addActionListener(menuListener);
+		fileTransferSubMenu.add(printSendRecvFileInfoMenuItem);
 		
 		cmServiceMenu.add(fileTransferSubMenu);
 		
@@ -696,13 +709,16 @@ public class CMWinClient extends JFrame {
 		case 25: // change current group
 			testChangeGroup();
 			break;
-		case 26: // request session information from a designated server
+		case 26: // print group members
+			testPrintGroupMembers();
+			break;
+		case 27: // request session information from a designated server
 			testRequestSessionInfoOfServer();
 			break;
-		case 27: // join a session of a designated server
+		case 28: // join a session of a designated server
 			testJoinSessionOfServer();
 			break;
-		case 28: // leave a session of a designated server
+		case 29: // leave a session of a designated server
 			testLeaveSessionOfServer();
 			break;
 		case 40: // chat
@@ -785,6 +801,9 @@ public class CMWinClient extends JFrame {
 			break;
 		case 74:	// test cancel sending a file
 			cancelSendFile();
+			break;
+		case 75:	// print sending/receiving file info
+			printSendRecvFileInfo();
 			break;
 		case 80: // test SNS content download
 			testDownloadNewSNSContent();
@@ -894,8 +913,9 @@ public class CMWinClient extends JFrame {
 		printMessage("21: synchronously request session information from default server\n");
 		printMessage("22: join session of default server, 23: synchronously join session of default server\n");
 		printMessage("24: leave session of default server, 25: change group of default server\n");
-		printMessage("26: request session information from designated server\n");
-		printMessage("27: join session of designated server, 28: leave session of designated server\n");
+		printMessage("26: print group members\n");
+		printMessage("27: request session information from designated server\n");
+		printMessage("28: join session of designated server, 29: leave session of designated server\n");
 		printMessage("---------------------------------- Event Transmission\n");
 		printMessage("40: chat, 41: multicast chat in current group\n");
 		printMessage("42: test CMDummyEvent, 43: test CMUserEvent, 44: test datagram event, 45: test user position\n");
@@ -912,6 +932,7 @@ public class CMWinClient extends JFrame {
 		printMessage("---------------------------------- File Transfer\n");
 		printMessage("70: set file path, 71: request file, 72: push file\n");
 		printMessage("73: cancel receiving file, 74: cancel sending file\n");
+		printMessage("75: print sending/receiving file info\n");
 		printMessage("---------------------------------- Social Network Service\n");
 		printMessage("80: request content list, 81: request next content list, 82: request previous content list\n");
 		printMessage("83: request attached file, 84: upload content\n");
@@ -1107,6 +1128,8 @@ public class CMWinClient extends JFrame {
 		}
 		else
 		{
+			m_startStopButton.setEnabled(true);
+			m_loginLogoutButton.setEnabled(true);
 			printStyledMessage("Client CM starts.\n", "bold");
 			printStyledMessage("Type \"0\" for menu.\n", "regular");
 			// change the appearance of buttons in the client window frame
@@ -1820,6 +1843,20 @@ public class CMWinClient extends JFrame {
 		printMessage("======\n");
 		return;
 	}
+	
+	public void testPrintGroupMembers()
+	{
+		printMessage("====== print group members\n");
+		CMMember groupMembers = m_clientStub.getGroupMembers();
+		CMUser myself = m_clientStub.getMyself();
+		printMessage("My name: "+myself.getName()+"\n");
+		if(groupMembers == null || groupMembers.isEmpty())
+		{
+			printStyledMessage("No group member yet!\n", "bold");
+			return;
+		}
+		printMessage(groupMembers.toString()+"\n");
+	}
 
 	// ServerSocketChannel is not supported.
 	// A server cannot add SocketChannel.
@@ -1875,7 +1912,7 @@ public class CMWinClient extends JFrame {
 			bGroup.add(blockRadioButton);
 			bGroup.add(nonBlockRadioButton);
 			String[] syncAsync = {"synchronous call", "asynchronous call"};
-			JComboBox syncAsyncComboBox = new JComboBox(syncAsync);
+			JComboBox<String> syncAsyncComboBox = new JComboBox<String>(syncAsync);
 			syncAsyncComboBox.setSelectedIndex(1); // default value is asynchronous call
 			
 			JTextField chIndexField = new JTextField();
@@ -2119,7 +2156,7 @@ public class CMWinClient extends JFrame {
 			bGroup.add(blockRadioButton);
 			bGroup.add(nonBlockRadioButton);
 			String syncAsync[] = {"synchronous call", "asynchronous call"};
-			JComboBox syncAsyncComboBox = new JComboBox(syncAsync);
+			JComboBox<String> syncAsyncComboBox = new JComboBox<String>(syncAsync);
 			syncAsyncComboBox.setSelectedIndex(1);	//default value is asynchronous call
 
 			JTextField chIndexField = new JTextField();
@@ -2392,7 +2429,7 @@ public class CMWinClient extends JFrame {
 		if(strSender.isEmpty())
 			strSender = null;
 		
-		bReturn = m_clientStub.cancelRequestFile(strSender);
+		bReturn = m_clientStub.cancelPullFile(strSender);
 		
 		if(bReturn)
 		{
@@ -2428,6 +2465,29 @@ public class CMWinClient extends JFrame {
 			printMessage("Request failed to cancel sending a file to ["+strReceiver+"]!\n");
 		
 		return;
+	}
+	
+	public void printSendRecvFileInfo()
+	{
+		CMFileTransferInfo fInfo = m_clientStub.getCMInfo().getFileTransferInfo();
+		Hashtable<String, CMList<CMSendFileInfo>> sendHashtable = fInfo.getSendFileHashtable();
+		Hashtable<String, CMList<CMRecvFileInfo>> recvHashtable = fInfo.getRecvFileHashtable();
+		Set<String> sendKeySet = sendHashtable.keySet();
+		Set<String> recvKeySet = recvHashtable.keySet();
+		
+		printMessage("==== sending file info\n");
+		for(String receiver : sendKeySet)
+		{
+			CMList<CMSendFileInfo> sendList = sendHashtable.get(receiver);
+			printMessage(sendList+"\n");
+		}
+
+		printMessage("==== receiving file info\n");
+		for(String sender : recvKeySet)
+		{
+			CMList<CMRecvFileInfo> recvList = recvHashtable.get(sender);
+			printMessage(recvList+"\n");
+		}
 	}
 	
 	public void testForwarding()
@@ -3103,7 +3163,7 @@ public class CMWinClient extends JFrame {
 				CMFileTransferManager.pushFile(strFiles[i], strTarget, m_clientStub.getCMInfo());
 				break;
 			case 1: // pull
-				CMFileTransferManager.requestFile(strFiles[i], strTarget, m_clientStub.getCMInfo());
+				CMFileTransferManager.requestPermitForPullFile(strFiles[i], strTarget, m_clientStub.getCMInfo());
 				break;
 			}
 		}
@@ -3298,7 +3358,8 @@ public class CMWinClient extends JFrame {
 		// make a file event (REQUEST_DIST_FILE_PROC)
 		fe = new CMFileEvent();
 		fe.setID(CMFileEvent.REQUEST_DIST_FILE_PROC);
-		fe.setReceiverName(interInfo.getMyself().getName());
+		//fe.setReceiverName(interInfo.getMyself().getName());
+		fe.setFileSender(interInfo.getMyself().getName());
 
 		// for pieces except the last piece
 		for( i = 0; i < m_eventHandler.getCurrentServerNum()-1; i++)
@@ -3315,6 +3376,7 @@ public class CMWinClient extends JFrame {
 
 			// send piece to the corresponding additional server
 			String strAddServer = interInfo.getAddServerList().elementAt(i).getServerName();
+			fe.setFileReceiver(strAddServer);
 			
 			m_clientStub.send(fe, strAddServer);
 			
@@ -3337,6 +3399,7 @@ public class CMWinClient extends JFrame {
 			CMFileTransferManager.splitFile(raf, lOffset, lFileSize-lPieceSize*i, strPieceName);
 		}
 		// send the last piece to the default server
+		fe.setFileReceiver(m_clientStub.getDefaultServerName());
 		m_clientStub.send(fe, m_clientStub.getDefaultServerName());
 		CMFileTransferManager.pushFile(strPieceName, m_clientStub.getDefaultServerName(), 
 				m_clientStub.getCMInfo());
@@ -3962,6 +4025,9 @@ public class CMWinClient extends JFrame {
 			case "change group of default server":
 				testChangeGroup();
 				break;
+			case "print group members":
+				testPrintGroupMembers();
+				break;
 			case "request session information from designated server":
 				testRequestSessionInfoOfServer();
 				break;
@@ -4051,6 +4117,9 @@ public class CMWinClient extends JFrame {
 				break;
 			case "cancel sending file":
 				cancelSendFile();
+				break;
+			case "print sending/receiving file info":
+				printSendRecvFileInfo();
 				break;
 			case "request content list":
 				testDownloadNewSNSContent();

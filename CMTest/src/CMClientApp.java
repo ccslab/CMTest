@@ -8,12 +8,15 @@ import java.nio.file.Paths;
 import java.util.*;
 
 import javax.swing.JOptionPane;
-import javax.swing.JTextField;
 
 import kr.ac.konkuk.ccslab.cm.entity.CMGroup;
 import kr.ac.konkuk.ccslab.cm.entity.CMGroupInfo;
+import kr.ac.konkuk.ccslab.cm.entity.CMList;
+import kr.ac.konkuk.ccslab.cm.entity.CMMember;
 import kr.ac.konkuk.ccslab.cm.entity.CMMessage;
 import kr.ac.konkuk.ccslab.cm.entity.CMPosition;
+import kr.ac.konkuk.ccslab.cm.entity.CMRecvFileInfo;
+import kr.ac.konkuk.ccslab.cm.entity.CMSendFileInfo;
 import kr.ac.konkuk.ccslab.cm.entity.CMServer;
 import kr.ac.konkuk.ccslab.cm.entity.CMSession;
 import kr.ac.konkuk.ccslab.cm.entity.CMSessionInfo;
@@ -27,6 +30,7 @@ import kr.ac.konkuk.ccslab.cm.event.CMSessionEvent;
 import kr.ac.konkuk.ccslab.cm.event.CMUserEvent;
 import kr.ac.konkuk.ccslab.cm.info.CMCommInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
+import kr.ac.konkuk.ccslab.cm.info.CMFileTransferInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInteractionInfo;
 import kr.ac.konkuk.ccslab.cm.manager.CMConfigurator;
@@ -144,13 +148,16 @@ public class CMClientApp {
 			case 25: // change current group
 				testChangeGroup();
 				break;
-			case 26: // request session information from a designated server
+			case 26: // print group members
+				testPrintGroupMembers();
+				break;
+			case 27: // request session information from a designated server
 				testRequestSessionInfoOfServer();
 				break;
-			case 27: // join a session of a designated server
+			case 28: // join a session of a designated server
 				testJoinSessionOfServer();
 				break;
-			case 28: // leave a session of a designated server
+			case 29: // leave a session of a designated server
 				testLeaveSessionOfServer();
 				break;
 			case 40: // chat
@@ -233,6 +240,9 @@ public class CMClientApp {
 				break;
 			case 74:	// test cancel sending a file
 				cancelSendFile();
+				break;
+			case 75:	// print sending/receiving file info
+				printSendRecvFileInfo();
 				break;
 			case 80: // test SNS content download
 				testDownloadNewSNSContent();
@@ -351,8 +361,9 @@ public class CMClientApp {
 		System.out.println("21: synchronously request session information from default server");
 		System.out.println("22: join session of default server, 23: synchronously join session of default server");
 		System.out.println("24: leave session of default server, 25: change group of default server");
-		System.out.println("26: request session information from designated server");
-		System.out.println("27: join session of designated server, 28: leave session of designated server");
+		System.out.println("26: print group members");
+		System.out.println("27: request session information from designated server");
+		System.out.println("28: join session of designated server, 29: leave session of designated server");
 		System.out.println("---------------------------------- Event Transmission");
 		System.out.println("40: chat, 41: multicast chat in current group");
 		System.out.println("42: test CMDummyEvent, 43: test CMUserEvent, 44: test datagram event, 45: test user position");
@@ -369,6 +380,7 @@ public class CMClientApp {
 		System.out.println("---------------------------------- File Transfer");
 		System.out.println("70: set file path, 71: request file, 72: push file");
 		System.out.println("73: cancel receiving file, 74: cancel sending file");
+		System.out.println("75: print sending/receiving file info");
 		System.out.println("---------------------------------- Social Network Service");
 		System.out.println("80: request content list, 81: request next content list, 82: request previous content list");
 		System.out.println("83: request attached file, 84: upload content");
@@ -1223,6 +1235,20 @@ public class CMClientApp {
 		return;
 	}
 	
+	public void testPrintGroupMembers()
+	{
+		System.out.print("====== print group members\n");
+		CMMember groupMembers = m_clientStub.getGroupMembers();
+		CMUser myself = m_clientStub.getMyself();
+		System.out.print("My name: "+myself.getName()+"\n");
+		if(groupMembers == null || groupMembers.isEmpty())
+		{
+			System.err.println("No group member yet!");
+			return;
+		}
+		System.out.print(groupMembers.toString()+"\n");
+	}
+	
 	// ServerSocketChannel is not supported.
 	// A server cannot add SocketChannel.
 	// For the SocketChannel, available server name must be given as well.
@@ -1742,7 +1768,7 @@ public class CMClientApp {
 			e.printStackTrace();
 		}
 
-		bReturn = m_clientStub.cancelRequestFile(strSender);
+		bReturn = m_clientStub.cancelPullFile(strSender);
 		
 		if(bReturn)
 		{
@@ -1785,6 +1811,29 @@ public class CMClientApp {
 			System.err.println("Request failed to cancel sending a file to ["+strReceiver+"]!");
 		
 		return;
+	}
+	
+	public void printSendRecvFileInfo()
+	{
+		CMFileTransferInfo fInfo = m_clientStub.getCMInfo().getFileTransferInfo();
+		Hashtable<String, CMList<CMSendFileInfo>> sendHashtable = fInfo.getSendFileHashtable();
+		Hashtable<String, CMList<CMRecvFileInfo>> recvHashtable = fInfo.getRecvFileHashtable();
+		Set<String> sendKeySet = sendHashtable.keySet();
+		Set<String> recvKeySet = recvHashtable.keySet();
+		
+		System.out.print("==== sending file info\n");
+		for(String receiver : sendKeySet)
+		{
+			CMList<CMSendFileInfo> sendList = sendHashtable.get(receiver);
+			System.out.print(sendList+"\n");
+		}
+
+		System.out.print("==== receiving file info\n");
+		for(String sender : recvKeySet)
+		{
+			CMList<CMRecvFileInfo> recvList = recvHashtable.get(sender);
+			System.out.print(recvList+"\n");
+		}
 	}
 	
 	public void testForwarding()
@@ -2534,7 +2583,7 @@ public class CMClientApp {
 				CMFileTransferManager.pushFile(strFiles[i], strTarget, m_clientStub.getCMInfo());
 				break;
 			case 2: // pull
-				CMFileTransferManager.requestFile(strFiles[i], strTarget, m_clientStub.getCMInfo());
+				CMFileTransferManager.requestPermitForPullFile(strFiles[i], strTarget, m_clientStub.getCMInfo());
 				break;
 			}
 		}
@@ -2735,7 +2784,8 @@ public class CMClientApp {
 		// make a file event (REQUEST_DIST_FILE_PROC)
 		fe = new CMFileEvent();
 		fe.setID(CMFileEvent.REQUEST_DIST_FILE_PROC);
-		fe.setReceiverName(interInfo.getMyself().getName());
+		//fe.setFileReceiver(interInfo.getMyself().getName());
+		fe.setFileSender(interInfo.getMyself().getName());
 
 		// for pieces except the last piece
 		for( i = 0; i < m_eventHandler.getCurrentServerNum()-1; i++)
@@ -2751,6 +2801,7 @@ public class CMClientApp {
 
 			// send piece to the corresponding additional server
 			String strAddServer = interInfo.getAddServerList().elementAt(i).getServerName();
+			fe.setFileReceiver(strAddServer);
 			
 			m_clientStub.send(fe, strAddServer);
 			
@@ -2772,7 +2823,9 @@ public class CMClientApp {
 			CMFileTransferManager.splitFile(raf, lOffset, lFileSize-lPieceSize*i, strPieceName);
 		}
 		// send the last piece to the default server
+		fe.setFileReceiver(m_clientStub.getDefaultServerName());
 		m_clientStub.send(fe, m_clientStub.getDefaultServerName());
+		
 		CMFileTransferManager.pushFile(strPieceName, m_clientStub.getDefaultServerName(), 
 				m_clientStub.getCMInfo());
 		

@@ -27,7 +27,6 @@ import kr.ac.konkuk.ccslab.cm.info.CMConfigurationInfo;
 import kr.ac.konkuk.ccslab.cm.info.CMInfo;
 import kr.ac.konkuk.ccslab.cm.manager.CMDBManager;
 import kr.ac.konkuk.ccslab.cm.manager.CMFileTransferManager;
-import kr.ac.konkuk.ccslab.cm.manager.CMInteractionManager;
 import kr.ac.konkuk.ccslab.cm.stub.CMServerStub;
 
 public class CMWinServerEventHandler implements CMAppEventHandler {
@@ -95,15 +94,14 @@ public class CMWinServerEventHandler implements CMAppEventHandler {
 						m_serverStub.getCMInfo());
 				if(!ret)
 				{
-					//System.out.println("["+se.getUserName()+"] authentication fails!");
 					printMessage("["+se.getUserName()+"] authentication fails!\n");
+					m_serverStub.replyEvent(cme, 0);
 				}
 				else
 				{
-					//System.out.println("["+se.getUserName()+"] authentication succeeded.");
 					printMessage("["+se.getUserName()+"] authentication succeeded.\n");
+					m_serverStub.replyEvent(cme, 1);
 				}
-				CMInteractionManager.replyToLOGIN(se, ret, m_serverStub.getCMInfo());
 			}
 			break;
 		case CMSessionEvent.LOGOUT:
@@ -375,40 +373,66 @@ public class CMWinServerEventHandler implements CMAppEventHandler {
 		CMFileEvent fe = (CMFileEvent) cme;
 		switch(fe.getID())
 		{
-		case CMFileEvent.REQUEST_FILE_TRANSFER:
-		case CMFileEvent.REQUEST_FILE_TRANSFER_CHAN:
-			//System.out.println("["+fe.getUserName()+"] requests file("+fe.getFileName()+").");
-			printMessage("["+fe.getReceiverName()+"] requests file("+fe.getFileName()+").\n");
+		case CMFileEvent.REQUEST_PERMIT_PULL_FILE:
+			printMessage("["+fe.getFileReceiver()+"] requests file("+fe.getFileName()+").\n");
+			printMessage("The pull-file request is not automatically permitted!\n");
+			printMessage("To change to automatically permit the pull-file request, \n");
+			printMessage("set the PERMIT_FILE_TRANSFER field to 1 in the cm-server.conf file\n");
+			break;
+		case CMFileEvent.REPLY_PERMIT_PULL_FILE:
+			if(fe.getReturnCode() == -1)
+			{
+				printMessage("["+fe.getFileName()+"] does not exist in the owner!\n");
+			}
+			else if(fe.getReturnCode() == 0)
+			{
+				printMessage("["+fe.getFileSender()+"] rejects to send file("
+						+fe.getFileName()+").\n");
+			}
+			break;
+		case CMFileEvent.REQUEST_PERMIT_PUSH_FILE:
+			printMessage("["+fe.getFileSender()+"] wants to send a file("+fe.getFilePath()+
+					").\n");
+			printMessage("The push-file request is not automatically permitted!\n");
+			printMessage("To change to automatically permit the push-file request, \n");
+			printMessage("set the PERMIT_FILE_TRANSFER field to 1 in the cm-server.conf file\n");
+			break;
+		case CMFileEvent.REPLY_PERMIT_PUSH_FILE:
+			if(fe.getReturnCode() == 0)
+			{
+				printMessage("["+fe.getFileReceiver()+"] rejected the push-file request!\n");
+				printMessage("file path("+fe.getFilePath()+"), size("+fe.getFileSize()+").\n");
+			}
 			break;
 		case CMFileEvent.START_FILE_TRANSFER:
 		case CMFileEvent.START_FILE_TRANSFER_CHAN:
 			//System.out.println("["+fe.getSenderName()+"] is about to send file("+fe.getFileName()+").");
-			printMessage("["+fe.getSenderName()+"] is about to send file("+fe.getFileName()+").\n");
+			printMessage("["+fe.getFileSender()+"] is about to send file("+fe.getFileName()+").\n");
 			break;
 		case CMFileEvent.END_FILE_TRANSFER:
 		case CMFileEvent.END_FILE_TRANSFER_CHAN:
 			//System.out.println("["+fe.getSenderName()+"] completes to send file("+fe.getFileName()+", "
 			//		+fe.getFileSize()+" Bytes).");
-			printMessage("["+fe.getSenderName()+"] completes to send file("+fe.getFileName()+", "
+			printMessage("["+fe.getFileSender()+"] completes to send file("+fe.getFileName()+", "
 					+fe.getFileSize()+" Bytes).\n");
 			String strFile = fe.getFileName();
 			if(m_bDistFileProc)
 			{
-				processFile(fe.getSenderName(), strFile);
+				processFile(fe.getFileSender(), strFile);
 				m_bDistFileProc = false;
 			}
 			break;
 		case CMFileEvent.REQUEST_DIST_FILE_PROC:
 			//System.out.println("["+fe.getUserName()+"] requests the distributed file processing.");
-			printMessage("["+fe.getReceiverName()+"] requests the distributed file processing.\n");
+			printMessage("["+fe.getFileReceiver()+"] requests the distributed file processing.\n");
 			m_bDistFileProc = true;
 			break;
 		case CMFileEvent.CANCEL_FILE_SEND:
 		case CMFileEvent.CANCEL_FILE_SEND_CHAN:
-			printMessage("["+fe.getSenderName()+"] cancelled the file transfer.\n");
+			printMessage("["+fe.getFileSender()+"] cancelled the file transfer.\n");
 			break;
 		case CMFileEvent.CANCEL_FILE_RECV_CHAN:
-			printMessage("["+fe.getReceiverName()+"] cancelled the file request.\n");
+			printMessage("["+fe.getFileReceiver()+"] cancelled the file request.\n");
 			break;
 		}
 		return;
@@ -579,7 +603,8 @@ public class CMWinServerEventHandler implements CMAppEventHandler {
 			if( confInfo.isLoginScheme() )
 			{
 				// user authentication omitted for the login to an additional server
-				CMInteractionManager.replyToADD_LOGIN(mse, true, m_serverStub.getCMInfo());
+				//CMInteractionManager.replyToADD_LOGIN(mse, true, m_serverStub.getCMInfo());
+				m_serverStub.replyEvent(mse, 1);
 			}
 			printMessage("["+mse.getUserName()+"] requests login to this server("
 								+mse.getServerName()+").\n");
