@@ -400,6 +400,7 @@ public class CMWinClient extends JFrame {
 		fileTransferSubMenu.add(reqFileMenuItem);
 		JMenuItem pushFileMenuItem = new JMenuItem("push file");
 		pushFileMenuItem.addActionListener(menuListener);
+		pushFileMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_P, ActionEvent.ALT_MASK));
 		fileTransferSubMenu.add(pushFileMenuItem);
 		JMenuItem cancelRecvMenuItem = new JMenuItem("cancel receiving file");
 		cancelRecvMenuItem.addActionListener(menuListener);
@@ -1878,7 +1879,7 @@ public class CMWinClient extends JFrame {
 		SocketChannel sc = null;
 		DatagramChannel dc = null;
 		boolean isSyncCall = false;
-		long lDelay = -1;
+		//long lDelay = -1;
 		
 		if(confInfo.getSystemType().equals("CLIENT"))
 		{
@@ -2012,14 +2013,14 @@ public class CMWinClient extends JFrame {
 			{
 				if(isSyncCall)
 				{
-					m_eventHandler.setStartTime(System.currentTimeMillis());
+					//m_eventHandler.setStartTime(System.currentTimeMillis());
 					sc = m_clientStub.syncAddBlockSocketChannel(nChKey, strServerName);
-					lDelay = System.currentTimeMillis() - m_eventHandler.getStartTime();
+					//lDelay = System.currentTimeMillis() - m_eventHandler.getStartTime();
 					if(sc != null)
 					{
 						printMessage("Successfully added a blocking socket channel both "
 								+ "at the client and the server: key("+nChKey+"), server("+strServerName+")\n");
-						printMessage("return delay: "+lDelay+" ms.\n");
+						//printMessage("return delay: "+lDelay+" ms.\n");
 					}
 					else
 						printMessage("Failed to add a blocking socket channel both at "
@@ -2027,15 +2028,15 @@ public class CMWinClient extends JFrame {
 				}
 				else
 				{
-					m_eventHandler.setStartTime(System.currentTimeMillis());
+					//m_eventHandler.setStartTime(System.currentTimeMillis());
 					result = m_clientStub.addBlockSocketChannel(nChKey, strServerName);
-					lDelay = System.currentTimeMillis() - m_eventHandler.getStartTime();
+					//lDelay = System.currentTimeMillis() - m_eventHandler.getStartTime();
 					if(result)
 					{
 						printMessage("Successfully added a blocking socket channel at the client and "
 								+"requested to add the channel info to the server: key("+nChKey+"), server("
 								+strServerName+")\n");
-						printMessage("return delay: "+lDelay+" ms.\n");
+						//printMessage("return delay: "+lDelay+" ms.\n");
 					}
 					else
 						printMessage("Failed to add a blocking socket channel at the client or "
@@ -2124,7 +2125,7 @@ public class CMWinClient extends JFrame {
 		boolean result = false;
 		boolean isBlock = false;
 		boolean isSyncCall = false;
-		long lDelay = 0;
+		//long lDelay = 0;
 		
 		if(confInfo.getSystemType().equals("CLIENT"))
 		{
@@ -2255,14 +2256,14 @@ public class CMWinClient extends JFrame {
 			{
 				if(isSyncCall)
 				{
-					m_eventHandler.setStartTime(System.currentTimeMillis());
+					//m_eventHandler.setStartTime(System.currentTimeMillis());
 					result = m_clientStub.syncRemoveBlockSocketChannel(nChKey, strServerName);
-					lDelay = System.currentTimeMillis() - m_eventHandler.getStartTime();
+					//lDelay = System.currentTimeMillis() - m_eventHandler.getStartTime();
 					if(result)
 					{
 						printMessage("Successfully removed a blocking socket channel both "
 								+ "at the client and the server: key("+nChKey+"), server ("+strServerName+")\n");
-						printMessage("return delay: "+lDelay+" ms.\n");
+						//printMessage("return delay: "+lDelay+" ms.\n");
 					}
 					else
 						printMessage("Failed to remove a blocking socket channel both at the client "
@@ -2270,14 +2271,14 @@ public class CMWinClient extends JFrame {
 				}
 				else
 				{
-					m_eventHandler.setStartTime(System.currentTimeMillis());
+					//m_eventHandler.setStartTime(System.currentTimeMillis());
 					result = m_clientStub.removeBlockSocketChannel(nChKey, strServerName);
-					lDelay = System.currentTimeMillis() - m_eventHandler.getStartTime();
+					//lDelay = System.currentTimeMillis() - m_eventHandler.getStartTime();
 					if(result)
 					{
 						printMessage("Successfully removed a blocking socket channel at the client and " 
 								+ "requested to remove it at the server: key("+nChKey+"), server("+strServerName+")\n");
-						printMessage("return delay: "+lDelay+" ms.\n");
+						//printMessage("return delay: "+lDelay+" ms.\n");
 					}
 					else
 						printMessage("Failed to remove a blocking socket channel at the client or "
@@ -2355,7 +2356,8 @@ public class CMWinClient extends JFrame {
 		boolean bReturn = false;
 		String strFileName = null;
 		String strFileOwner = null;
-		String strFileAppendMode = null;
+		byte byteFileAppendMode = -1;
+		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
 		
 		printMessage("====== request a file\n");
 
@@ -2365,28 +2367,44 @@ public class CMWinClient extends JFrame {
 		JComboBox<String> fAppendBox = new JComboBox<String>(fAppendMode);
 
 		Object[] message = { 
-				"File Name: ", fnameField, "File Owner: ", fownerField,
+				"File Name: ", fnameField, 
+				"File Owner(empty for default server): ", fownerField,
 				"File Append Mode: ", fAppendBox 
 				};
 		int option = JOptionPane.showConfirmDialog(null, message, "File Request", JOptionPane.OK_CANCEL_OPTION);
-		if(option == JOptionPane.OK_OPTION)
+		if(option == JOptionPane.CANCEL_OPTION || option != JOptionPane.OK_OPTION)
 		{
-			strFileName = fnameField.getText();
-			strFileOwner = fownerField.getText();
-			strFileAppendMode = (String) fAppendBox.getSelectedItem();
-			
-			m_eventHandler.setStartTime(System.currentTimeMillis());	// set the start time of the request
-			
-			if(strFileAppendMode.equals("Default"))
-				bReturn = m_clientStub.requestFile(strFileName, strFileOwner);
-			else if(strFileAppendMode.equals("Overwrite"))
-				bReturn = m_clientStub.requestFile(strFileName,  strFileOwner, CMInfo.FILE_OVERWRITE);
-			else
-				bReturn = m_clientStub.requestFile(strFileName, strFileOwner, CMInfo.FILE_APPEND);
-			
-			if(!bReturn)
-				printMessage("Request file error! file("+strFileName+"), owner("+strFileOwner+").\n");
+			printMessage("canceled!\n");
+			return;
 		}
+		
+		strFileName = fnameField.getText().trim();
+		if(strFileName.isEmpty())
+		{
+			printMessage("File name is empty!\n");
+			return;
+		}
+		strFileOwner = fownerField.getText().trim();
+		if(strFileOwner.isEmpty())
+			strFileOwner = interInfo.getDefaultServerInfo().getServerName();
+		
+		switch(fAppendBox.getSelectedIndex())
+		{
+		case 0:
+			byteFileAppendMode = CMInfo.FILE_DEFAULT;
+			break;
+		case 1:
+			byteFileAppendMode = CMInfo.FILE_OVERWRITE;
+			break;
+		case 2:
+			byteFileAppendMode = CMInfo.FILE_APPEND;
+			break;
+		}
+		
+		bReturn = m_clientStub.requestFile(strFileName, strFileOwner, byteFileAppendMode);
+					
+		if(!bReturn)
+			printMessage("Request file error! file("+strFileName+"), owner("+strFileOwner+").\n");
 		
 		printMessage("======\n");
 	}
@@ -2396,10 +2414,48 @@ public class CMWinClient extends JFrame {
 		String strFilePath = null;
 		File[] files = null;
 		String strReceiver = null;
+		byte byteFileAppendMode = -1;
+		CMInteractionInfo interInfo = m_clientStub.getCMInfo().getInteractionInfo();
+		boolean bReturn = false;
+
 		printMessage("====== push a file\n");
 		
+		/*
 		strReceiver = JOptionPane.showInputDialog("Receiver Name: ");
 		if(strReceiver == null) return;
+		*/
+		JTextField freceiverField = new JTextField();
+		String[] fAppendMode = {"Default", "Overwrite", "Append"};		
+		JComboBox<String> fAppendBox = new JComboBox<String>(fAppendMode);
+
+		Object[] message = { 
+				"File Receiver(empty for default server): ", freceiverField,
+				"File Append Mode: ", fAppendBox 
+				};
+		int option = JOptionPane.showConfirmDialog(null, message, "File Push", JOptionPane.OK_CANCEL_OPTION);
+		if(option == JOptionPane.CANCEL_OPTION || option != JOptionPane.OK_OPTION)
+		{
+			printMessage("canceled.\n");
+			return;
+		}
+		
+		strReceiver = freceiverField.getText().trim();
+		if(strReceiver.isEmpty())
+			strReceiver = interInfo.getDefaultServerInfo().getServerName();
+		
+		switch(fAppendBox.getSelectedIndex())
+		{
+		case 0:
+			byteFileAppendMode = CMInfo.FILE_DEFAULT;
+			break;
+		case 1:
+			byteFileAppendMode = CMInfo.FILE_OVERWRITE;
+			break;
+		case 2:
+			byteFileAppendMode = CMInfo.FILE_APPEND;
+			break;			
+		}
+		
 		JFileChooser fc = new JFileChooser();
 		fc.setMultiSelectionEnabled(true);
 		CMConfigurationInfo confInfo = m_clientStub.getCMInfo().getConfigurationInfo();
@@ -2412,8 +2468,12 @@ public class CMWinClient extends JFrame {
 		for(int i=0; i < files.length; i++)
 		{
 			strFilePath = files[i].getPath();
-			//CMFileTransferManager.pushFile(strFilePath, strReceiver, m_clientStub.getCMInfo());
-			m_clientStub.pushFile(strFilePath, strReceiver);
+			bReturn = m_clientStub.pushFile(strFilePath, strReceiver, byteFileAppendMode);
+			if(!bReturn)
+			{
+				printMessage("push file error! file("+strFilePath+"), receiver("
+						+strReceiver+")\n");
+			}
 		}
 		
 		printMessage("======\n");
