@@ -237,26 +237,31 @@ public class CMServerApp {
 	{
 		// get current server info from the server configuration file
 		String strSavedServerAddress = null;
-		String strCurServerAddress = null;
+		List<String> localAddressList = null;
 		int nSavedServerPort = -1;
 		String strNewServerAddress = null;
 		String strNewServerPort = null;
 		int nNewServerPort = -1;
-		
+
+		localAddressList = CMCommManager.getLocalIPList();
+		if(localAddressList == null) {
+			System.err.println("Local address not found!");
+			return;
+		}
 		strSavedServerAddress = m_serverStub.getServerAddress();
-		strCurServerAddress = CMCommManager.getLocalIP();
 		nSavedServerPort = m_serverStub.getServerPort();
 		
 		// ask the user if he/she would like to change the server info
 		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
 		System.out.println("========== start CM");
-		System.out.println("detected server address: "+strCurServerAddress);
+		System.out.println("my current address: "+localAddressList.get(0).toString());
+		System.out.println("saved server address: "+strSavedServerAddress);
 		System.out.println("saved server port: "+nSavedServerPort);
 		
 		try {
-			System.out.print("new server address (enter for detected value): ");
+			System.out.print("new server address (enter for saved value): ");
 			strNewServerAddress = br.readLine().trim();
-			if(strNewServerAddress.isEmpty()) strNewServerAddress = strCurServerAddress;
+			if(strNewServerAddress.isEmpty()) strNewServerAddress = strSavedServerAddress;
 
 			System.out.print("new server port (enter for saved value): ");
 			strNewServerPort = br.readLine().trim();
@@ -1344,6 +1349,15 @@ public class CMServerApp {
 			strFieldValuePair = strConf.split("\\s+");
 			System.out.print(strFieldValuePair[0]+" = "+strFieldValuePair[1]+"\n");
 		}
+		
+		System.out.print("------- conf info not in the "+confPath.toString()+"\n");
+		CMConfigurationInfo confInfo = m_serverStub.getCMInfo().getConfigurationInfo();
+		System.out.print("Local address list: ");
+		for(String addr : confInfo.getMyAddressList()) {
+			System.out.print(addr+" ");
+		}
+		System.out.print("\nCurrent my address: "+confInfo.getMyCurrentAddress()+"\n");
+
 	}
 	
 	public void changeConfiguration()
